@@ -1,0 +1,11 @@
+---
+tags: [ai, adapter, cursor]
+summary: Legacy thin pointer — prefer .cursor/rules/agents.mdc for Agent mode.
+applies to: FirstPrinciples
+---
+
+# .cursorrules
+
+AI instructions for this project live in `AGENTS.md` at the repo root — read that first.
+
+For Cursor Agent mode, the reliable always-on adapter is `.cursor/rules/agents.mdc` (`alwaysApply: true`). This `.cursorrules` file is kept for compatibility only.
