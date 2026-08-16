@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+dist
+coverage
+.turbo
+node_modules
+CHANGELOG.md
+LICENSE
+CODE_OF_CONDUCT.md
+EXECUTION-CHECKLIST.md
