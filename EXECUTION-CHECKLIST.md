@@ -12,6 +12,7 @@ terse and factual — this is not a narrative log.
 |---|---|---|---|
 | S0 | PREP-1…PREP-5 | 2026-08-16 | Prerequisites passed. Node 24 (v24.19.0) via nvm, pnpm 11.22.0 via corepack, GitHub SSH auth as `aaasingh905`, npm org `@firstprinciples` claimed (member of org, not personal account), `NPM_TOKEN` repo secret added, repo switched public, Dependabot/secret-scanning/private-vuln-reporting/Pages all enabled. |
 | S1 | SCAF-1, SCAF-2, SCAF-3 | 2026-08-16 | Root monorepo scaffold: `pnpm-workspace.yaml`, root `package.json` (`private: true`), `.nvmrc`, `.gitignore`, `turbo.json` (local cache only, no remoteCache block), `tools/tsconfig-base` and `tools/eslint-config` as real workspace packages. No package code. Verified clean `pnpm install`, a second `turbo run build` cache-hits, and both `tools/` packages are consumable via `workspace:*` (proved with a throwaway package, then deleted). |
+| S2 | SCAF-4, GOV-1, GOV-2 | 2026-08-16 | Formatter hooks + governance re-landed on current `main` (history rewrite had dropped PR #3). `.prettierrc` + `eslint-config-prettier` last in `tools/eslint-config`; Husky pre-commit → lint-staged (`eslint --fix` + Prettier on staged files; hook verified on a real commit). MIT LICENSE, CONTRIBUTING.md (setup + changeset requirement + PR expectations), Contributor Covenant 2.1, SECURITY.md (0.x table; GitHub private vulnerability reporting only). `.github/CODEOWNERS`, bug/feature issue templates, PR template with changeset checkbox. Root `eslint.config.js` added so pre-commit ESLint has a config. |
 
 ---
 
@@ -27,14 +28,18 @@ terse and factual — this is not a narrative log.
   - `@typescript-eslint/eslint-plugin` / `parser`: `^8.67.0`
   - `turbo`: `^2.10.10`
   - `eslint-plugin-import`: `^2.32.0`, `eslint-plugin-security`: `^4.0.1`, `eslint-plugin-tsdoc`: `^0.5.2`, `globals`: `^17.11.0`
+  - `eslint-config-prettier`: `^10.1.8` (S2) — last item in the shared ESLint flat config so Prettier owns formatting.
+  - `prettier`: `^3.6.2` (resolved 3.9.6), `husky`: `^9.1.7`, `lint-staged`: `^16.1.5` (resolved 16.4.0) (S2).
   - If any package session needs to bump these, re-check the peer-dependency chain above before doing so — it's the reason these specific versions were chosen over strictly-latest.
+- **Formatter vs ESLint:** Prettier is the only formatter. Shared ESLint config does not set formatting rules; `eslint-config-prettier` is appended to disable any stylistic rules that leak in from recommended presets. Do not add `quotes`/`semi`/`indent` ESLint rules.
+- **CODEOWNERS:** `@aaasingh905` is the default owner until GitHub teams exist.
 - **`tools/*` added to `pnpm-workspace.yaml` packages list** (spec §4.1 only lists `packages/*`, `docs`, `examples/*`). This addition is necessary for `tools/tsconfig-base` and `tools/eslint-config` to be resolvable via `workspace:*` — without it they aren't pnpm workspace members at all.
 
 ---
 
 ## Gate status
 
-- **Gate 1 (CI green on empty scaffold):** NOT YET PASSED. Scaffold exists locally and verifies clean (`pnpm install`, `turbo run build/lint/typecheck/test` all exit 0 with zero packages). CI workflows (`ci.yml`, `codeql.yml`, `release.yml`, `docs.yml`, `dependabot.yml`) have not been written yet — that's S2–S5. Gate 1 itself is confirmed in S6.
+- **Gate 1 (CI green on empty scaffold):** NOT YET PASSED. Scaffold exists locally and verifies clean (`pnpm install`, `turbo run build/lint/typecheck/test` all exit 0 with zero packages). CI workflows (`ci.yml`, `codeql.yml`, `release.yml`, `docs.yml`, `dependabot.yml`) have not been written yet — that's S3–S5. Gate 1 itself is confirmed in S6.
 - **Gate 2 (core published to npm 0.1.0 with provenance):** NOT STARTED.
 
 ---
@@ -63,10 +68,11 @@ All 13 packages unchecked — no package code has been written yet (S1 is scaffo
 
 ## Parked problems / open questions
 
-- None yet. S7 (`core` design) must explicitly resolve the `Result`/error-class layering question (Final_plan.md §2.2) and record the decision here — three later sessions (`http-client`, `api-kit`, `access-control`) depend on that answer.
+- **Community standards (GOV-1):** GitHub evaluates Insights → Community standards on default branch `main` only. Description/topics were set via API. File-based items (LICENSE, CoC, CONTRIBUTING, SECURITY, templates) go green after this S2 re-land merges to `main`.
+- S7 (`core` design) must explicitly resolve the `Result`/error-class layering question (Final_plan.md §2.2) and record the decision here — three later sessions (`http-client`, `api-kit`, `access-control`) depend on that answer.
 
 ---
 
 ## Next session
 
-**S2 · Formatter hooks + governance files** — 🆕 Cursor · Grok 4.5 · medium. See `sessions-all-prompts.md`.
+**S3 · CI and security workflows** — 🆕 Claude Sonnet 5 · `/effort medium`. Stories `CI-1`, `CI-2`. See `sessions-all-prompts.md`.

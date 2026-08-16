@@ -20,11 +20,11 @@ See playbook `../EngineeringCompass/ai/agent-roles.md` (link; do not copy).
 
 ## Task → what to read
 
-| Task type | Read (in order) |
-|---|---|
-| Bug fix | 1. File with the bug. 2. Nearest test (if any). |
-| New feature | 1. Closest existing module, if one exists. 2. `README.md`. |
-| Doc-only | The doc file itself + `README.md`. |
+| Task type        | Read (in order)                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| Bug fix          | 1. File with the bug. 2. Nearest test (if any).                                             |
+| New feature      | 1. Closest existing module, if one exists. 2. `README.md`.                                  |
+| Doc-only         | The doc file itself + `README.md`.                                                          |
 | Coding standards | Playbook `../EngineeringCompass/standards/` index → one relevant file (link, don't vendor). |
 
 ## Hard rules
@@ -35,11 +35,11 @@ See playbook `../EngineeringCompass/ai/agent-roles.md` (link; do not copy).
 
 ## Where things live
 
-| Need | Path |
-|---|---|
-| Doc index | `README.md` (no `docs/_index.md` yet) |
-| Known issues | none tracked yet |
-| Playbook | `../EngineeringCompass/` |
+| Need         | Path                                  |
+| ------------ | ------------------------------------- |
+| Doc index    | `README.md` (no `docs/_index.md` yet) |
+| Known issues | none tracked yet                      |
+| Playbook     | `../EngineeringCompass/`              |
 
 This repo is early-stage — mostly empty beyond this router. Update the
 tables above as real structure (source dirs, tests, docs) gets added.
