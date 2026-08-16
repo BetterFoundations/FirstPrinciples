@@ -12,7 +12,7 @@ terse and factual — this is not a narrative log.
 |---|---|---|---|
 | S0 | PREP-1…PREP-5 | 2026-08-16 | Prerequisites passed. Node 24 (v24.19.0) via nvm, pnpm 11.22.0 via corepack, GitHub SSH auth as `aaasingh905`, npm org `@firstprinciples` claimed (member of org, not personal account), `NPM_TOKEN` repo secret added, repo switched public, Dependabot/secret-scanning/private-vuln-reporting/Pages all enabled. |
 | S1 | SCAF-1, SCAF-2, SCAF-3 | 2026-08-16 | Root monorepo scaffold: `pnpm-workspace.yaml`, root `package.json` (`private: true`), `.nvmrc`, `.gitignore`, `turbo.json` (local cache only, no remoteCache block), `tools/tsconfig-base` and `tools/eslint-config` as real workspace packages. No package code. Verified clean `pnpm install`, a second `turbo run build` cache-hits, and both `tools/` packages are consumable via `workspace:*` (proved with a throwaway package, then deleted). |
-| S2 | SCAF-4, GOV-1, GOV-2 | 2026-08-16 | Prettier (`.prettierrc` + `eslint-config-prettier` last in `tools/eslint-config`), Husky pre-commit → lint-staged (`eslint --fix` + Prettier on staged files only; hook verified on a real commit). MIT LICENSE, CONTRIBUTING.md (setup + changeset requirement + PR expectations), Contributor Covenant 2.1, SECURITY.md (0.x support table; GitHub private vulnerability reporting only). `.github/CODEOWNERS`, bug/feature issue templates, PR template with changeset checkbox. Root `eslint.config.js` added so the pre-commit ESLint run has a config. |
+| S2 | SCAF-4, GOV-1, GOV-2 | 2026-08-16 | Prettier (`.prettierrc` + `eslint-config-prettier` last in `tools/eslint-config`), Husky pre-commit → lint-staged (`eslint --fix` + Prettier on staged files only; hook verified on a real commit). MIT LICENSE, CONTRIBUTING.md (setup + changeset requirement + PR expectations), Contributor Covenant 2.1, SECURITY.md (0.x support table; GitHub private vulnerability reporting only). `.github/CODEOWNERS`, bug/feature issue templates, PR template with changeset checkbox. Root `eslint.config.js` added so the pre-commit ESLint run has a config. PR: https://github.com/BetterFoundations/FirstPrinciples/pull/3 (stacked on S1 PR #2). |
 
 ---
 
@@ -68,7 +68,8 @@ All 13 packages unchecked — no package code has been written yet (S1 is scaffo
 
 ## Parked problems / open questions
 
-- None yet. S7 (`core` design) must explicitly resolve the `Result`/error-class layering question (Final_plan.md §2.2) and record the decision here — three later sessions (`http-client`, `api-kit`, `access-control`) depend on that answer.
+- **Community standards (GOV-1):** GitHub evaluates Insights → Community standards on default branch `main` only. At S2 open, health was 12% (README on `main` only). Repo **description** and **topics** were set via API in S2. File-based items (LICENSE, CoC, CONTRIBUTING, SECURITY, issue + PR templates) go green after S1 PR #2 and S2 PR #3 merge to `main`. Re-check the checklist then — do not treat it as green until that merge.
+- S7 (`core` design) must explicitly resolve the `Result`/error-class layering question (Final_plan.md §2.2) and record the decision here — three later sessions (`http-client`, `api-kit`, `access-control`) depend on that answer.
 
 ---
 
