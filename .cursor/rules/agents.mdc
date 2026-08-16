@@ -1,0 +1,8 @@
+---
+description: Always load FirstPrinciples AGENTS.md router before any work
+alwaysApply: true
+---
+
+# FirstPrinciples — read AGENTS.md first
+
+Before planning or editing anything in this repository, **Read** `AGENTS.md` at this repo's root using the Read tool. Follow its routing table: open only the 1–3 files that table names for the task. Do not ask the user to @-link `AGENTS.md`.
