@@ -1,0 +1,20 @@
+{
+  "name": "firstprinciples",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.10"
+  }
+}
