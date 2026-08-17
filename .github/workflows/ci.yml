@@ -76,11 +76,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Calls @changesets/cli's entry point directly instead of via the
-      # node_modules/.bin/changeset symlink — that symlink was intermittently
-      # missing after `pnpm install --frozen-lockfile` on GitHub-hosted
-      # runners even though the package itself installed correctly and every
-      # other devDependency's bin resolved fine from the same install
-      # (couldn't reproduce locally; this sidesteps it rather than chase it).
       - name: Changeset check
-        run: node node_modules/@changesets/cli/bin.js status --since=origin/main
+        run: pnpm changeset status --since=origin/main
