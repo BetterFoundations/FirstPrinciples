@@ -25,7 +25,7 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --trust-lockfile
 
       # Includes a TypeDoc generation step (spec §6.5) — added once the `docs`
       # workspace package (Astro Starlight, spec §8.2) exists. Until then this
