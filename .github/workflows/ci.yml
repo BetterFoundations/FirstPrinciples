@@ -63,6 +63,16 @@ jobs:
       - name: Bundle size check
         run: pnpm run size
 
+      - name: Changeset check
+        run: pnpm changeset status --since=origin/main
+
+      # Must run LAST: it does `git checkout -f main` *in place* in this same
+      # working directory to build its bundle-size comparison, then
+      # `pnpm install`s main's package.json — which drops any dependency
+      # this PR added but main doesn't have yet — and never restores the
+      # head branch/node_modules afterward. Any step placed after it runs
+      # against that corrupted state (this is exactly what broke "Changeset
+      # check" for several fixup commits before the ordering bug was found).
       # Diffs bundle size against the base branch, so it needs a valid
       # size-limit config on *both* sides. Non-blocking: `main` has no
       # size-limit setup at all until this very PR merges, so the
@@ -75,6 +85,3 @@ jobs:
         uses: andresz1/size-limit-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Changeset check
-        run: pnpm changeset status --since=origin/main
