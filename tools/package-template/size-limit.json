@@ -1,0 +1,7 @@
+[
+  {
+    "name": "@firstprinciples/PACKAGE_NAME",
+    "path": "dist/index.js",
+    "limit": "5 KB"
+  }
+]

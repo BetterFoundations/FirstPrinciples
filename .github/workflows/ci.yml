@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history so `changeset status --since=origin/main` has
+          # something to diff against.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm turbo run lint
+
+      - name: Typecheck
+        run: pnpm turbo run typecheck
+
+      - name: Test with coverage
+        run: pnpm turbo run test -- --coverage
+
+      # Runs even if the coverage gate above failed, so a red run still shows
+      # which package(s) missed threshold. Free replacement for a paid
+      # Codecov PR comment/dashboard.
+      - name: Coverage summary
+        if: always()
+        run: pnpm coverage:summary
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            packages/*/coverage/**
+            examples/*/coverage/**
+            tools/*/coverage/**
+            docs/coverage/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Bundle size check
+        run: pnpm run size
+
+      - name: Bundle size PR comment
+        if: github.event_name == 'pull_request'
+        uses: andresz1/size-limit-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          package_manager: pnpm
+          script: pnpm run size
+
+      - name: Changeset check
+        run: pnpm exec changeset status --since=origin/main

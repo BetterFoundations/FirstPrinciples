@@ -1,0 +1,41 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'packages/**/src/**']
+
+permissions:
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # Includes a TypeDoc generation step (spec §6.5) — added once the `docs`
+      # workspace package (Astro Starlight, spec §8.2) exists. Until then this
+      # workflow never fires: the path filter above only matches `docs/**` or
+      # `packages/**/src/**`, neither of which exists on the empty scaffold.
+      - run: pnpm --filter docs run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs/dist'
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

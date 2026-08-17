@@ -12,18 +12,25 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "coverage:summary": "node scripts/write-coverage-summary.mjs",
+    "size": "node scripts/check-bundle-size.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "changeset": "changeset",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.0",
     "@firstprinciples/eslint-config": "workspace:*",
+    "@size-limit/preset-small-lib": "^13.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.5",
     "prettier": "^3.6.2",
-    "turbo": "^2.10.10"
+    "size-limit": "^13.0.3",
+    "turbo": "^2.10.10",
+    "vitest": "^4.1.10"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,tsx}": [
