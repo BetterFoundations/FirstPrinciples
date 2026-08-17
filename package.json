@@ -13,7 +13,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "coverage:summary": "node scripts/write-coverage-summary.mjs",
-    "size": "node scripts/check-bundle-size.mjs",
+    "size": "size-limit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "changeset": "changeset",

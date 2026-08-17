@@ -68,8 +68,6 @@ jobs:
         uses: andresz1/size-limit-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          package_manager: pnpm
-          script: pnpm run size
 
       - name: Changeset check
         run: pnpm exec changeset status --since=origin/main
