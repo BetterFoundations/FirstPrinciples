@@ -63,8 +63,15 @@ jobs:
       - name: Bundle size check
         run: pnpm run size
 
+      # Diffs bundle size against the base branch, so it needs a valid
+      # size-limit config on *both* sides. Non-blocking: `main` has no
+      # size-limit setup at all until this very PR merges, so the
+      # base-branch checkout has nothing to run against on the PR that first
+      # introduces it. Budget enforcement itself is the plain step above,
+      # which does fail the job — this step is PR-comment UX only.
       - name: Bundle size PR comment
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: andresz1/size-limit-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
