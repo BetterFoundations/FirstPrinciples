@@ -1,0 +1,16 @@
+{
+  "name": "@firstprinciples/vitest-config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "peerDependencies": {
+    "vitest": "^4.0.0"
+  }
+}

@@ -3,3 +3,8 @@ packages:
   - 'docs'
   - 'examples/*'
   - 'tools/*'
+  # tools/package-template is a copy-and-rename scaffold (spec §3.1), not a
+  # real workspace member — it has no working dist/exports of its own.
+  - '!tools/package-template'
+allowBuilds:
+  esbuild: true

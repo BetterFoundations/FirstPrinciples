@@ -1,0 +1,50 @@
+{
+  "name": "@firstprinciples/PACKAGE_NAME",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "description": "PACKAGE_ONE_LINE_DESCRIPTION",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aaasingh905/FirstPrinciples",
+    "directory": "packages/PACKAGE_NAME"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --coverage",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@firstprinciples/eslint-config": "workspace:*",
+    "@firstprinciples/tsconfig-base": "workspace:*",
+    "@firstprinciples/vitest-config": "workspace:*",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
