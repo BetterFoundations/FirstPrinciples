@@ -34,8 +34,13 @@ jobs:
       - name: Typecheck
         run: pnpm turbo run typecheck
 
+      # No `-- --coverage` here: every package's own `test` script already
+      # carries it (see tools/package-template), and vitest 4 rejects the
+      # duplicate flag outright rather than ignoring it. Coverage settings
+      # and thresholds live in each package's vitest.config.ts, via
+      # @firstprinciples/vitest-config.
       - name: Test with coverage
-        run: pnpm turbo run test -- --coverage
+        run: pnpm turbo run test
 
       # Runs even if the coverage gate above failed, so a red run still shows
       # which package(s) missed threshold. Free replacement for a paid
