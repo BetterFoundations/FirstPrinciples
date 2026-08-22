@@ -1,6 +1,48 @@
 import { ValidationError } from '@firstprinciples/core';
 import { describe, expect, it } from 'vitest';
-import { interpolatePath, joinUrl } from '../../src/internal/path.js';
+import { interpolatePath, joinUrl, stripTrailingSlashes } from '../../src/internal/path.js';
+
+describe('stripTrailingSlashes', () => {
+  it('removes one trailing slash', () => {
+    expect(stripTrailingSlashes('https://api.example.com/')).toBe('https://api.example.com');
+  });
+
+  it('removes many trailing slashes', () => {
+    expect(stripTrailingSlashes('https://api.example.com///')).toBe('https://api.example.com');
+  });
+
+  it('leaves a string with no trailing slash untouched', () => {
+    expect(stripTrailingSlashes('https://api.example.com')).toBe('https://api.example.com');
+  });
+
+  it('does not touch a slash that is not trailing', () => {
+    expect(stripTrailingSlashes('https://api.example.com/v1/')).toBe('https://api.example.com/v1');
+  });
+
+  it('reduces an all-slash string to empty', () => {
+    expect(stripTrailingSlashes('////')).toBe('');
+  });
+
+  it('leaves an empty string untouched', () => {
+    expect(stripTrailingSlashes('')).toBe('');
+  });
+
+  it('runs in linear time on an adversarial input, unlike the /\\/+$/ regex it replaces', () => {
+    // The regex this function replaced degrades polynomially on a long
+    // string with no trailing slash at all — CodeQL flagged exactly this
+    // ("Polynomial regular expression used on uncontrolled data") because
+    // an unanchored-at-start quantifier gets retried at every position. A
+    // plain backward scan can't exhibit that: this is the actual proof,
+    // not just a claim in a comment.
+    const adversarial = `${'a'.repeat(200_000)}b`; // no trailing slash at all
+    const start = performance.now();
+    const result = stripTrailingSlashes(adversarial);
+    const elapsedMs = performance.now() - start;
+
+    expect(result).toBe(adversarial);
+    expect(elapsedMs).toBeLessThan(50);
+  });
+});
 
 describe('joinUrl', () => {
   it('joins a base and a path with exactly one slash', () => {

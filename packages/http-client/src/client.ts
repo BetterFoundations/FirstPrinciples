@@ -1,7 +1,7 @@
 import { type AppError, ValidationError } from '@firstprinciples/core';
 import { parseResponseBody, serializeRequestBody } from './internal/body.js';
 import { toHttpError, toNetworkError } from './internal/errors.js';
-import { interpolatePath, joinUrl } from './internal/path.js';
+import { interpolatePath, joinUrl, stripTrailingSlashes } from './internal/path.js';
 import {
   type ResolvedRetryConfig,
   executeWithRetry,
@@ -56,7 +56,7 @@ function hasContentTypeHeader(headers: Record<string, string>): boolean {
  * @public
  */
 export function createApiClient(config: ClientConfig): ApiClient {
-  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const baseUrl = stripTrailingSlashes(config.baseUrl);
   const defaultTimeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const defaultRetryConfig: ResolvedRetryConfig = resolveRetryConfig(config.retry);
 
