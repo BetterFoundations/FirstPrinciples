@@ -1,5 +1,11 @@
 # @firstprinciples/core
 
+## 0.1.1
+
+### Patch Changes
+
+- 048f7a8: README now links to the runnable usage example in `examples/core`.
+
 ## 0.1.0
 
 ### Minor Changes
