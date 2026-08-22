@@ -10,6 +10,9 @@ dependencies, isomorphic, 1.6 kB minified and brotlied.
 Every other `@firstprinciples` package imports from here, so this one stays
 small enough that depending on it is never a decision you have to think about.
 
+A runnable version of every recipe below lives in
+[`examples/core`](../../examples/core) — `pnpm --filter examples-core start`.
+
 ## Install
 
 ```sh
