@@ -1,0 +1,7 @@
+[
+  {
+    "name": "@firstprinciples/core",
+    "path": "dist/index.js",
+    "limit": "2 KB"
+  }
+]

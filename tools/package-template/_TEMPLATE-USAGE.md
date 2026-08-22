@@ -15,5 +15,10 @@ API table, recipes) — `grep -rn 'PACKAGE_' .` to find them all. Replace the pl
 `tests/integration/` suite only if this package talks to an external system (spec §5);
 otherwise its `.gitkeep` can stay.
 
+The template's `version` is `0.0.0` on purpose. Changesets applies a bump literally,
+so `0.0.0` plus the package's first `minor` changeset versions it to exactly `0.1.0` —
+the version every package is specified to launch at. Starting the file at `0.1.0` would
+make that first release `0.2.0`. Do not "fix" it to `0.1.0`.
+
 Do not edit anything under `tools/package-template/` itself to fit one specific package —
 this directory must stay generic so it keeps working as the source for the next package too.

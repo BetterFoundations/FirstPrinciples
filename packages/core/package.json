@@ -1,14 +1,24 @@
 {
-  "name": "@firstprinciples/PACKAGE_NAME",
+  "name": "@firstprinciples/core",
   "version": "0.0.0",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "PACKAGE_ONE_LINE_DESCRIPTION",
+  "description": "Typed error hierarchy, Result type, and branded primitives \u2014 the zero-dependency foundation every @firstprinciples package builds on.",
+  "keywords": [
+    "typescript",
+    "result",
+    "either",
+    "error-handling",
+    "branded-types",
+    "nominal-typing",
+    "typed-errors",
+    "isomorphic"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/BetterFoundations/FirstPrinciples",
-    "directory": "packages/PACKAGE_NAME"
+    "directory": "packages/core"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -46,6 +56,7 @@
     "@firstprinciples/eslint-config": "workspace:*",
     "@firstprinciples/tsconfig-base": "workspace:*",
     "@firstprinciples/vitest-config": "workspace:*",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
     "tsup": "^8.5.0",
