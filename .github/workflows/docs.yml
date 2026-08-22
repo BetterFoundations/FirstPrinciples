@@ -27,15 +27,24 @@ jobs:
 
       - run: pnpm install --frozen-lockfile --trust-lockfile
 
-      # Includes a TypeDoc generation step (spec §6.5) — added once the `docs`
-      # workspace package (Astro Starlight, spec §8.2) exists. Until then this
-      # workflow never fires: the path filter above only matches `docs/**` or
-      # `packages/**/src/**`, neither of which exists on the empty scaffold.
-      - run: pnpm --filter docs run build
+      # The path filter above matches `packages/**/src/**`, which now exists
+      # (core, logger) — but the `docs` workspace package itself (Astro
+      # Starlight, spec §8.2, with a TypeDoc generation step per spec §6.5)
+      # doesn't exist yet. `pnpm --filter docs` silently no-ops with zero
+      # matched packages rather than failing, so without this check the job
+      # would reach `upload-pages-artifact` with no `docs/dist` to upload.
+      - name: Check docs package exists
+        id: docs-check
+        run: echo "exists=$(test -f docs/package.json && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.docs-check.outputs.exists == 'true'
+        run: pnpm --filter docs run build
+
+      - if: steps.docs-check.outputs.exists == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: 'docs/dist'
 
-      - id: deployment
+      - if: steps.docs-check.outputs.exists == 'true'
+        id: deployment
         uses: actions/deploy-pages@v4
