@@ -7,6 +7,9 @@ packages:
   # real workspace member — it has no working dist/exports of its own.
   - '!tools/package-template'
 allowBuilds:
+  cpu-features: true
   esbuild: true
+  protobufjs: true
+  ssh2: true
 overrides:
   esbuild: '>=0.28.1'

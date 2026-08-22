@@ -1,0 +1,71 @@
+{
+  "name": "@firstprinciples/cache-kit",
+  "version": "0.0.0",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "description": "A typed, backend-agnostic caching layer: get/set/wrap/invalidate over in-memory LRU and Redis, tag-based invalidation, and single-flight cache-stampede protection.",
+  "keywords": [
+    "cache",
+    "lru",
+    "redis",
+    "cache-stampede",
+    "single-flight",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BetterFoundations/FirstPrinciples",
+    "directory": "packages/cache-kit"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --coverage",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@firstprinciples/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@firstprinciples/eslint-config": "workspace:*",
+    "@firstprinciples/tsconfig-base": "workspace:*",
+    "@firstprinciples/vitest-config": "workspace:*",
+    "@testcontainers/redis": "^12.1.0",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "ioredis": "^6.0.0",
+    "testcontainers": "^12.1.0",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

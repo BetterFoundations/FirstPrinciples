@@ -1,0 +1,17 @@
+{
+  "name": "examples-cache-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/cache-kit.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/cache-kit": "workspace:*",
+    "@firstprinciples/core": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
