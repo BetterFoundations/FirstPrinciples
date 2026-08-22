@@ -1,0 +1,16 @@
+{
+  "name": "examples-logger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/logger.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/logger": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

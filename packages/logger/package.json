@@ -1,0 +1,85 @@
+{
+  "name": "@firstprinciples/logger",
+  "version": "0.0.0",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "description": "Structured, isomorphic logging with automatic secret/PII redaction and AsyncLocalStorage correlation IDs.",
+  "keywords": [
+    "logging",
+    "logger",
+    "pino",
+    "redaction",
+    "correlation-id",
+    "structured-logging",
+    "isomorphic"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BetterFoundations/FirstPrinciples",
+    "directory": "packages/logger"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": {
+    "./dist/index.js": "./dist/browser.js",
+    "./dist/index.cjs": "./dist/browser.cjs",
+    "pino": false,
+    "node:async_hooks": false,
+    "node:crypto": false
+  },
+  "exports": {
+    ".": {
+      "browser": {
+        "import": {
+          "types": "./dist/browser.d.ts",
+          "default": "./dist/browser.js"
+        },
+        "require": {
+          "types": "./dist/browser.d.cts",
+          "default": "./dist/browser.cjs"
+        }
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --coverage",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@firstprinciples/eslint-config": "workspace:*",
+    "@firstprinciples/tsconfig-base": "workspace:*",
+    "@firstprinciples/vitest-config": "workspace:*",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

@@ -7,9 +7,10 @@ Agent instructions: [AGENTS.md](AGENTS.md).
 
 ## Packages
 
-| Package                                  | Description                                                                                                                  |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| [`@firstprinciples/core`](packages/core) | Typed error hierarchy, `Result` type, and branded primitives — the zero-dependency foundation every other package builds on. |
+| Package                                      | Description                                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [`@firstprinciples/core`](packages/core)     | Typed error hierarchy, `Result` type, and branded primitives — the zero-dependency foundation every other package builds on. |
+| [`@firstprinciples/logger`](packages/logger) | Structured, isomorphic logging with automatic secret/PII redaction and `AsyncLocalStorage` correlation IDs.                  |
 
 ## Contributing
 

@@ -20,7 +20,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.0",
+    "@changesets/cli": "^2.31.1",
     "@firstprinciples/eslint-config": "workspace:*",
     "@size-limit/preset-small-lib": "^13.0.3",
     "@vitest/coverage-v8": "^4.1.10",

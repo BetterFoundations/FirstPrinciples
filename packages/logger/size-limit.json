@@ -1,0 +1,13 @@
+[
+  {
+    "name": "@firstprinciples/logger (node, pino external)",
+    "path": "dist/index.js",
+    "limit": "5 KB",
+    "ignore": ["pino", "node:async_hooks", "async_hooks", "node:crypto", "crypto"]
+  },
+  {
+    "name": "@firstprinciples/logger (browser)",
+    "path": "dist/browser.js",
+    "limit": "5 KB"
+  }
+]
