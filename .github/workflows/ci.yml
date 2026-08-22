@@ -68,7 +68,13 @@ jobs:
       - name: Bundle size check
         run: pnpm run size
 
+      # Skipped on the changesets bot's own release branch: that PR's whole
+      # point is a version bump + CHANGELOG with the consumed changeset(s)
+      # already deleted, which is exactly what this check exists to flag on
+      # every other branch. `github.head_ref` is empty on push events, so
+      # this still runs for the push-to-main case.
       - name: Changeset check
+        if: github.head_ref != 'changeset-release/main'
         run: pnpm changeset status --since=origin/main
 
       # Must run LAST: it does `git checkout -f main` *in place* in this same
