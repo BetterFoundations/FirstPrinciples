@@ -1,10 +1,10 @@
 {
   "name": "@firstprinciples/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Typed error hierarchy, Result type, and branded primitives \u2014 the zero-dependency foundation every @firstprinciples package builds on.",
+  "description": "Typed error hierarchy, Result type, and branded primitives — the zero-dependency foundation every @firstprinciples package builds on.",
   "keywords": [
     "typescript",
     "result",
