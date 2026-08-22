@@ -10,6 +10,7 @@ import {
   ConflictError,
   ForbiddenError,
   isAppError,
+  NetworkError,
   NotFoundError,
   type Result,
   type SerializedAppError,
@@ -24,6 +25,7 @@ describe('the hierarchy', () => {
     expectTypeOf<ForbiddenError>().toExtend<AppError>();
     expectTypeOf<UnauthorizedError>().toExtend<AppError>();
     expectTypeOf<ConflictError>().toExtend<AppError>();
+    expectTypeOf<NetworkError>().toExtend<AppError>();
     expectTypeOf<AppError>().toExtend<Error>();
   });
 

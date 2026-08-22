@@ -51,6 +51,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
 
+  examples/http-client:
+    dependencies:
+      '@firstprinciples/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@firstprinciples/http-client':
+        specifier: workspace:*
+        version: link:../../packages/http-client
+
   examples/logger:
     dependencies:
       '@firstprinciples/logger':
@@ -74,6 +83,43 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(supports-color@7.2.0)
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.26)(supports-color@7.2.0)(typescript@6.0.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(yaml@2.9.0))
+
+  packages/http-client:
+    dependencies:
+      '@firstprinciples/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@firstprinciples/eslint-config':
+        specifier: workspace:*
+        version: link:../../tools/eslint-config
+      '@firstprinciples/tsconfig-base':
+        specifier: workspace:*
+        version: link:../../tools/tsconfig-base
+      '@firstprinciples/vitest-config':
+        specifier: workspace:*
+        version: link:../../tools/vitest-config
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      '@vitest/coverage-v8':
+        specifier: ^4.1.10
+        version: 4.1.10(vitest@4.1.10)
+      esbuild:
+        specifier: '>=0.28.1'
+        version: 0.28.2
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(supports-color@7.2.0)

@@ -96,6 +96,7 @@ describe('the published surface', () => {
       'AppError',
       'ConflictError',
       'ForbiddenError',
+      'NetworkError',
       'NotFoundError',
       'UnauthorizedError',
       'ValidationError',

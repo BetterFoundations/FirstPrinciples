@@ -26,6 +26,7 @@ export {
   ConflictError,
   ForbiddenError,
   isAppError,
+  NetworkError,
   NotFoundError,
   UnauthorizedError,
   ValidationError,
