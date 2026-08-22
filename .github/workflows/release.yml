@@ -43,3 +43,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # actions/setup-node's registry-url above points npm/pnpm config
+          # resolution (NPM_CONFIG_USERCONFIG) at a temp .npmrc that expects
+          # auth via NODE_AUTH_TOKEN specifically — without this, that file's
+          # auth token is empty and shadows the separate ~/.npmrc changesets/
+          # action writes from NPM_TOKEN, so the actual `pnpm publish`
+          # subprocess authenticates with nothing. Confirmed via the npm
+          # token's dashboard showing "Last used: never" despite every
+          # release run supposedly using it.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
