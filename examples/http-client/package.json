@@ -1,0 +1,17 @@
+{
+  "name": "examples-http-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/http-client.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/core": "workspace:*",
+    "@firstprinciples/http-client": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

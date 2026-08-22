@@ -1,0 +1,69 @@
+{
+  "name": "@firstprinciples/http-client",
+  "version": "0.0.0",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "description": "A typed fetch wrapper: discriminated-union results (never thrown exceptions), retry with backoff, combined timeout/abort, and a pluggable validation adapter.",
+  "keywords": [
+    "fetch",
+    "http-client",
+    "api-client",
+    "typescript",
+    "result",
+    "retry",
+    "abort-controller"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BetterFoundations/FirstPrinciples",
+    "directory": "packages/http-client"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --coverage",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@firstprinciples/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@firstprinciples/eslint-config": "workspace:*",
+    "@firstprinciples/tsconfig-base": "workspace:*",
+    "@firstprinciples/vitest-config": "workspace:*",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

@@ -6,6 +6,7 @@ import {
   isAppError,
   isErr,
   isOk,
+  NetworkError,
   NotFoundError,
   UnauthorizedError,
   ValidationError,
@@ -19,6 +20,7 @@ const VARIANTS = [
   { Ctor: ForbiddenError, name: 'ForbiddenError', code: 'FORBIDDEN', httpStatus: 403 },
   { Ctor: UnauthorizedError, name: 'UnauthorizedError', code: 'UNAUTHORIZED', httpStatus: 401 },
   { Ctor: ConflictError, name: 'ConflictError', code: 'CONFLICT', httpStatus: 409 },
+  { Ctor: NetworkError, name: 'NetworkError', code: 'NETWORK_ERROR', httpStatus: 503 },
 ] as const;
 
 describe.each(VARIANTS)('$name', ({ Ctor, name, code, httpStatus }) => {

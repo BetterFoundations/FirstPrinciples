@@ -478,6 +478,42 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * The request never reached a server, or no response came back at all —
+ * DNS failure, connection refused, timeout, or an aborted in-flight
+ * request.
+ *
+ * @remarks
+ * Defaults: `code` `NETWORK_ERROR`, `httpStatus` 503. `httpStatus` is set
+ * even though no HTTP response was ever received, because it is the
+ * ecosystem's single agreed severity axis (see {@link AppError.httpStatus})
+ * — 503 is the status this failure *would* map to. This is the error class
+ * `@firstprinciples/http-client` uses to distinguish a network failure from
+ * a typed HTTP error response, per the `Result`/error layering decision.
+ *
+ * @public
+ */
+export class NetworkError extends AppError {
+  /**
+   * Narrowed to a string literal so this class is structurally distinct
+   * from its siblings — see {@link AppError.name}.
+   */
+  declare name: 'NetworkError';
+
+  /**
+   * @param message - Human-readable description.
+   * @param options - See {@link AppErrorOptions}.
+   */
+  constructor(message: string, options: AppErrorOptions = {}) {
+    super(message, {
+      ...options,
+      code: options.code ?? 'NETWORK_ERROR',
+      httpStatus: options.httpStatus ?? 503,
+    });
+    this.name = 'NetworkError';
+  }
+}
+
 /** Built-in subclasses {@link AppError.fromJSON} can restore by name. */
 const ERROR_CONSTRUCTORS = new Map<
   string,
@@ -489,6 +525,7 @@ const ERROR_CONSTRUCTORS = new Map<
   ['ForbiddenError', ForbiddenError],
   ['UnauthorizedError', UnauthorizedError],
   ['ConflictError', ConflictError],
+  ['NetworkError', NetworkError],
 ]);
 
 /** Rebuild a non-AppError link in a serialized cause chain. */
