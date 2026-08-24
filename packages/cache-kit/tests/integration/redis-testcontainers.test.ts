@@ -32,6 +32,17 @@ describe.skipIf(!isDockerAvailable())(
         maxRetriesPerRequest: 1,
         retryStrategy: () => null,
       });
+      // `enableOfflineQueue: false` means a command issued before the
+      // initial handshake completes rejects immediately ("Stream isn't
+      // writeable") instead of queueing for when it does — ioredis
+      // connects asynchronously in the background from the constructor,
+      // so without this wait, the suite's first commands race the
+      // connection itself. Waiting for 'ready' here is not a command, so
+      // it is unaffected by the offline-queue setting.
+      await new Promise<void>((resolve, reject) => {
+        client.once('ready', resolve);
+        client.once('error', reject);
+      });
     }, 120_000);
 
     afterAll(async () => {
