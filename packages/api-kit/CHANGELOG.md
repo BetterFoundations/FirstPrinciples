@@ -1,5 +1,12 @@
 # @firstprinciples/api-kit
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [c11e17b]
+  - @firstprinciples/core@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes
