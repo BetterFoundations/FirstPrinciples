@@ -1,0 +1,14 @@
+[
+  {
+    "name": "@firstprinciples/auth-utils (argon2 + jose external)",
+    "path": "dist/index.js",
+    "limit": "9 KB",
+    "ignore": ["argon2", "jose", "node:crypto", "crypto"]
+  },
+  {
+    "name": "@firstprinciples/auth-utils/jwt (jose external)",
+    "path": "dist/jwt.js",
+    "limit": "5 KB",
+    "ignore": ["jose"]
+  }
+]

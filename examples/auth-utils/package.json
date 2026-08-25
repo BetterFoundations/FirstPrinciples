@@ -1,0 +1,19 @@
+{
+  "name": "examples-auth-utils",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/auth-utils.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/auth-utils": "workspace:*",
+    "@firstprinciples/core": "workspace:*",
+    "argon2": "^0.45.1",
+    "jose": "^6.2.10"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

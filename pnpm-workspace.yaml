@@ -7,6 +7,16 @@ packages:
   # real workspace member — it has no working dist/exports of its own.
   - '!tools/package-template'
 allowBuilds:
+  # false, deliberately (S13). `argon2` ships prebuilt binaries for
+  # darwin-arm64, linux-x64/arm64/arm, freebsd and win32-x64 inside its
+  # own tarball, and `node-gyp-build` resolves them at require time — so
+  # the install script is not needed for the binding to work (verified
+  # by hashing and verifying a password with the script suppressed).
+  # Allowing it would let node-gyp fall back to compiling from source,
+  # which needs a toolchain in CI and produces a binary the lockfile's
+  # integrity hash never covered. If a future target platform has no
+  # prebuild, flip this rather than discovering it at require time.
+  argon2: false
   cpu-features: true
   esbuild: true
   protobufjs: true

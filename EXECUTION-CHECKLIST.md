@@ -25,6 +25,8 @@ terse and factual — this is not a narrative log.
 | S11 | PKG-CACHE | 2026-08-22 | `@firstprinciples/cache-kit` built: `createCache` returns a client whose `get`/`set`/`invalidate`/`invalidateTag`/`wrap` work identically over `createMemoryBackend` (in-memory LRU) or `createRedisBackend` (bring-your-own `ioredis`-compatible client), both behind one `CacheBackend` interface. 85 tests run + 6 skipped (unit / edge-case / integration / type-level — the 6 skipped are the real-Redis testcontainers suite, see below), coverage 98.73% statements / 95.58% branches / 100% functions / 99.26% lines, lint clean, 2.08 kB against a 3 kB budget (measured via the real `size-limit` tool, brotli). **`CacheGetResult` is deliberately NOT layered on `core`'s `Result`** — the checklist's own prompt asked this to be judged rather than assumed (see Decisions locked below for the full reasoning): a cache miss is an expected, constant outcome on every cold read, not a failure: the S7 layering decision's `Result` is for outcomes callers must branch on as *exceptional*, and a miss categorically isn't one. Genuine backend failures (Redis unreachable) are a different, actually-exceptional case, and get their own new error class, `CacheBackendError extends AppError` (`code: CACHE_BACKEND_ERROR`, `httpStatus: 503`, matching `NetworkError`'s convention) — kept local to this package rather than promoted to `core` (unlike S10's `NetworkError`), since nothing else in the ecosystem needs to map it without importing `cache-kit`. **The single-flight dedup the brief calls "the hardest problem" lives entirely in `createCache`'s `wrap`, above both backends, not in either backend** — reasoned through explicitly rather than pattern-matched: the check-then-register sequence around an `inFlight` map is race-free because JS's run-to-completion semantics guarantee no `await` sits between checking the map and registering a promise in it, so two concurrent misses can never both observe it empty (full reasoning in `client.ts`'s comments). Verified with the exact test the brief names: N concurrent misses for the same key produce exactly one upstream call — run against **both** backends via `describe.each`, since dedup must behave identically underneath either one. **`wrap` never throws `CacheBackendError`** — a failure on its internal read or write is swallowed and treated as a miss, because the whole point of a cache is that it shouldn't be a new way for a request to fail; direct `get`/`set`/`invalidate`/`invalidateTag` calls are not fail-soft the same way and throw normally, since a caller reaching for them explicitly wants to know. Covered by dedicated tests distinguishing a swallowed `CacheBackendError` from a genuine bug in a custom backend (a plain `TypeError`), which must NOT be swallowed. **Tag bookkeeping is bidirectional on both backends**, the real fix for "tag invalidation correctness" (the spec's own words): each tagged key tracks its own current tags (Redis: a `kt:<key>` reverse-index set; memory: `MemoryEntry.tags`), so re-`set`ting a key with a different tag list, or deleting it directly, always cleans every tag it belonged to — not just the one that happened to be invalidated. Without this, `invalidateTag` can delete a key that was re-tagged away, or a `SMEMBERS`/`tagIndex` set can accumulate forever. One accepted, documented gap: a Redis key that expires via its own TTL (not through `invalidate`/`invalidateTag`) isn't proactively pruned from its tag's set — Redis has no hook back into this package for that; `kt:<key>` gets a matching `PEXPIRE` so it self-cleans, but `t:<tag>` sets can carry a stale, harmless reference until that tag is next invalidated. **Eviction under capacity pressure is scoped to the memory backend only** — the Redis backend implements no eviction logic of its own by design; a real Redis instance's own `maxmemory-policy` governs that, and byte-size accounting in JS was judged unreliable enough that count-based `maxEntries` (matching every well-known LRU library) was chosen instead, same call `core`'s S7 brief made for a different reason. **TTL is a half-open interval** (`Date.now() >= writeTime + ttlMs`), checked lazily on read with no background sweep; boundary-tested at exactly ±1ms on both backends via fake timers. **The Redis backend imports no Redis client library at all** — `RedisClientLike`/`RedisPipelineLike` are minimal structural interfaces a real `ioredis` instance satisfies without adaptation, confirmed at the type level (`tsc` typechecks the real testcontainers test file, which constructs `createRedisBackend` from an actual `ioredis` instance) rather than assumed; an in-memory-only consumer's bundle carries zero Redis code, confirmed by a dist-bundle test asserting `ioredis`/`testcontainers` never appear in the built artifact and that importing only `createMemoryBackend` tree-shakes `createRedisBackend` away entirely. **This is the first package needing testcontainers, and that half is unverified in this environment**: this sandbox has no Docker daemon reachable at all (`docker`/`colima`/`podman` all absent, confirmed by direct check) — the real-Redis suite (`tests/integration/redis-testcontainers.test.ts`, 6 tests covering round-trip, real TTL expiry, tag invalidation, 15-way concurrent stampede protection, and killing the container mid-operation) is gated behind `describe.skipIf(!isDockerAvailable())` so it skips cleanly here rather than hanging, but has never actually run. GitHub Actions' `ubuntu-latest` runner has Docker preinstalled, so it should run for real there — **check the PR's CI run for this suite actually executing (not skipping) and passing**, the same "verify against the real thing, don't assume" pattern as PRE-S9's provenance fix. Installing `testcontainers`/`@testcontainers/redis`/`ioredis` pulled in native-build devDependencies (`cpu-features`, `protobufjs`, `ssh2` — `ssh2`'s optional SSH-tunneled-Docker-host support) that pnpm's default supply-chain gate ignores; approved via `pnpm approve-builds`, which persisted the approval into `pnpm-workspace.yaml`'s `allowBuilds` (a tracked file), so CI's own `pnpm install --frozen-lockfile --trust-lockfile` picks up the same approval — not something CI needs to be told separately. `examples/cache-kit` added and actually run (not just written): 10 concurrent `wrap()` calls confirmed as exactly 1 upstream call, tag invalidation, a simulated total backend outage that `wrap` survived, and a real TTL expiring after 150ms all produced the expected output. `pnpm audit` (both `--prod` and full) clean. Changeset added (`minor`, landing `0.0.0` → `0.1.0`). One minor, deliberately accepted coverage gap: `redis.ts` line 201 (the second `Promise.all(smembers)` batch inside `invalidateTag` failing after the first `smembers` call already succeeded) needs a narrower failure-sequencing simulation than was worth building for one line at 95.58% branch coverage already well past the 85% gate. Committed on branch `feat/s11-cache-kit-package`, not pushed — human raises the PR. |
 | **POST-S11** | — | 2026-08-25 | **The testcontainers suite's first real CI run surfaced a genuine bug, not a flake** — exactly the "verify against the real thing, don't assume" check the S11 row above asked for. `pnpm turbo run test` on GitHub Actions failed 4 of the 6 `redis-testcontainers.test.ts` tests with `Error: Stream isn't writeable and enableOfflineQueue options is false`; the other 2 (the stampede-protection test and the connection-loss test, both reached later and each already delayed by real `setTimeout`s) passed. **Root cause:** `ioredis` connects asynchronously in the background from its constructor; the suite's `beforeAll` created the client and returned immediately without waiting for the connection to actually finish. `enableOfflineQueue: false` (set deliberately so the connection-loss test at the end of the file fails fast instead of hanging) means a command issued before the handshake completes is rejected immediately rather than queued for when it does — so the first few tests, which ran with no delay after client construction, raced the connection itself. The later tests happened to run after enough real async delay (`setTimeout`s in their own bodies) that the connection was already up by the time they issued a command, which is why only 4 of 6 failed and not all 6 — a timing-dependent failure pattern, the signature of a genuine race rather than a systemic backend bug (nothing in `createRedisBackend`'s own logic was at fault; every failure originated in `wrapRedisError` wrapping ioredis's own connection-state error). **Fix:** `beforeAll` now awaits the client's `'ready'` event (via a one-time listener, not a command, so it is unaffected by `enableOfflineQueue`) before the suite proceeds — `tests/integration/redis-testcontainers.test.ts`. Verified locally as far as this environment allows: `typecheck` and `lint` clean, and the rest of the local suite (85 tests, everything except the still-Docker-gated 6) still green — **the fix itself remains unverified against a real container** (this sandbox still has no Docker daemon; confirmed again before writing this fix), so the next CI run on this branch is the actual test, same unverified-until-the-next-real-run pattern as the `.npmrc` provenance fix from PRE-S9. If it still fails there, treat the "Stream isn't writeable" message itself as the next lead — it would mean the race described above was not the only cause, or the `'ready'` wait is somehow insufficient (e.g. a reconnect path this fix did not account for). |
 | S12 | PKG-API | 2026-08-25 | `@firstprinciples/api-kit` built: a typed success/error envelope (`ApiEnvelope<T>` — `SuccessEnvelope<T> \| ErrorEnvelope`), RFC 7807 problem-details formatting of `core` errors, schema-library-agnostic request validation (`ValidateFn`, the exact `http-client` S10 adapter shape reused, not reinvented), and Express/Fastify/Hono adapters. 82 tests (unit / edge-cases / type-level / integration), **100% coverage on every metric**, lint clean, `pnpm audit` (prod and full) clean, each of the four built entries (`index`, `express`, `fastify`, `hono`) 1.6–1.94 kB brotli against a 3 kB budget. **The brief's real risk — drift between the three adapters — was addressed architecturally, not just by testing against it**: every adapter (`src/express.ts`, `src/fastify.ts`, `src/hono.ts`) is thin glue calling one shared, framework-free `src/internal/adapter-core.ts` (`buildSuccessResponse`/`buildErrorResponse`/`extractTarget`/`storeValid`) — there is exactly one place in the package that decides what a response looks like, so drift is structurally impossible rather than merely caught by review. The test suite mirrors this: **one shared conformance suite** (`tests/integration/conformance/conformance-suite.ts`, 12 assertions covering success/error/validation across all four `ValidationTarget`s) runs against all three adapters, each via a real HTTP server on loopback (`@hono/node-server` for Hono, since Hono's own app object isn't a Node server) — not three parallel test files that could quietly diverge. **`toProblemDetails` maps `core`'s typed fields explicitly, never spreads `toJSON()`** (S7 decision 2's own instruction to this session): `title` is the HTTP status's reason phrase (a static table, `src/internal/status-text.ts`), not the error's `message` — `detail` carries that instead — because RFC 7807 asks `title` to stay constant across every occurrence of a `code`, and an `AppError.message` is written per-occurrence (`"No user 42"`, not `"user not found"`); verified exhaustively over the whole built-in error taxonomy in `tests/edge-cases/error-taxonomy-mapping.test.ts`, not just spot-checked on one class. **A non-`AppError` is normalized without ever leaking its own message** (`src/internal/normalize-error.ts`) — the same "don't trust an arbitrary thrown value's message" posture `core`'s own error handling takes, verified by a test asserting a raw driver-error-shaped message (with a fake password in it) never reaches the response. **Each framework is an optional peer dependency in a stronger sense than typical**: `express.ts`/`fastify.ts`/`hono.ts` only ever `import type` their framework, never a runtime import, so tsup erases the import entirely — confirmed, not assumed, in `tests/integration/dist-bundle.test.ts`, which rebuilds `dist/` fresh and checks every built entry stays under 10 KB raw (a real bundled framework would be tens of KB). **A design question resolved the way the brief pointed at `cache-kit` (S11) for**: `runValidation` returns `Result<T, ValidationError>` internally (an expected, branch-worthy outcome, matching `core`'s convention) but every adapter's `validateRequest` re-throws that `Err` as a real `ValidationError` at the framework boundary — reasoned through rather than copied, since an HTTP adapter's error-handling entry point is the one place *every* kind of request-handling failure surfaces, not a second, validation-only channel. `examples/api-kit` added and actually run (not just written): all four scenarios (success envelope, `NotFoundError` → RFC 7807, validation pass/fail, an unexpected throw normalized) produced the expected real output over real `fetch` calls against a real Express server. Root `README.md` updated with a one-line description + link. Changeset added (`api-kit-initial-release.md`, `minor`, landing `0.0.0` → `0.1.0`). Docs site page deferred, same as `core`/`logger`/`http-client`/`cache-kit` (`docs/` still doesn't exist). CodeQL and provenance can only be confirmed once pushed and published — not verified in this session, per the Per-package DoD matrix below. Committed on branch `feat/s12-api-kit-package`, not pushed — human raises the PR. |
+| S13 | PKG-AUTH (first half) | 2026-08-25 | `@firstprinciples/auth-utils` — **hashing and JWT only**; refresh-token rotation, reuse detection and login-attempt tracking are deliberately deferred to S14. argon2id hashing with parameters chosen from measurements taken on this machine (table in the README and in decision 10 below), and JWT issue/verify behind a **mandatory algorithm allowlist validated against the key at construction time**. The design premise came from evidence, not assumption: before writing any of it, both `alg: none` and RS256→HS256 confusion were fired at raw `jose@6.2.10`, and **two attacks landed** — `jwtVerify(token, pemBytes)` with jose's optional `algorithms` omitted verified an attacker-forged HS256 token, and a token with no `exp` verified indefinitely. Both are now passing tests in `tests/attacks/` alongside the six the brief named (`alg: none`, algorithm confusion, `exp`, `nbf`, wrong `iss`, wrong `aud`) plus header key-injection (`jwk`/`jku`/`x5u`/`x5c`/`crit`), cross-key substitution, and HMAC secret-strength. 248 tests (unit / edge-case / attacks / integration / type-level), coverage 99.64% statements / 97.56% branches / 100% functions / 100% lines, lint clean, `pnpm audit` clean prod+full, 4.92 kB and 4.09 kB against 6 kB / 5 kB budgets. **Four real defects were caught by the tests rather than by review:** a `maxTokenAge` violation mis-mapped as `expired` (jose reports it as `JWTExpired` with `claim: 'iat'`); the `verifyPassword` unusable-hash path burning work at *default* parameters, which reopened the timing oracle for any non-default deployment; a `core` design defect that made every built-in error class unsubclassable (fixed **in `core`** — the taxonomy discriminant moved onto a new `readonly kind` field, freeing `name`, which unblocks S16 too — rather than worked around in this package; breaking against the published `core@0.1.0`, taken as a minor since nothing consumes it yet), and a `turbo.json` task-graph defect with four separate manifestations, one of which (`auth-utils#build` reading `core/dist/index.d.ts` mid-delete) failed 3 of 3 clean runs. Fixing it also closed the `logger` race parked since S10; the full-workspace pipeline went from 3/5 to **8/8 consecutive from-clean green runs** (see the S13 turbo section below). PR: TBD.
+| S14 | PKG-AUTH (second half) | 2026-08-25 | `@firstprinciples/auth-utils` completed: refresh-token rotation with reuse detection, and login-attempt rate limiting, both over a bring-your-own store with an in-memory default. **Atomicity came from the data model, not from a distributed transaction** — a token *family* is one record, so invalidating the presented token and issuing its successor are edits to one object and reach the store as a single write; the only remaining race is the ordinary read-modify-write, handled with compare-and-set. Reuse revokes the **whole family**, and `reused` fires exactly once per family. 383 tests (unit / edge-case / attacks / integration / type-level), coverage 99.78% statements / 98.13% branches / 100% functions / 100% lines, lint clean, audit clean, 6.88 kB and 4.13 kB against 9 kB / 5 kB budgets. The state machine is a **pure function** (`decideRotation`), which is what makes "test every transition" a complete table rather than a sampling. Concurrency was verified rather than assumed: an instrumented store counts lost compare-and-sets to prove the two-client race is real and not passing because the awaits never interleaved. **One S13 hand-off assumption was reversed** — see decision 1 below. PR: TBD. |
 
 ---
 
@@ -568,6 +570,519 @@ under `isolatedModules`, so it adds no runtime edge and no fourth cycle.
   and `validateRequest` creates a fresh bag itself the first time a given
   request needs one.
 
+### S13 — `@firstprinciples/auth-utils` design decisions (first half: hashing + JWT)
+
+**1. The vulnerabilities this package exists to prevent are *configuration*
+failures in `jose`, not implementation bugs — and two of them were
+reproduced landing before anything was designed around them.**
+
+`jose@6.2.10` is a careful library and is not vulnerable to the classic JWT
+attacks when driven correctly. It is vulnerable to how a reasonable person
+drives it. Both of the following are **passing tests** in
+`tests/attacks/`, written to succeed as attacks, and both must keep
+passing — if either starts failing, `jose` changed its defaults and the
+construction-time checks should be re-justified, but do not delete them:
+
+- **`jwtVerify(token, key)` with no `algorithms` option** allows every
+  algorithm the key supports. `fs.readFileSync('public.pem')` returns a
+  `Buffer`, a `Buffer` is a `Uint8Array`, and `jose` reads a `Uint8Array`
+  as an HMAC secret. So an attacker HMACs a token with the (public) public
+  key's PEM text and it verifies. Reproduced in
+  `tests/attacks/algorithm-confusion.test.ts` — `payload.sub` comes back
+  as `'admin'`.
+- **`jose` does not require `exp`.** A token minted without one verifies
+  forever. Reproduced in `tests/attacks/expiry` (the `claims.test.ts`
+  suite).
+
+Everything below follows from that framing: the fix is not more runtime
+checking, it is making the unsafe configuration unrepresentable and
+validating what is left **at construction time**, where it fails at
+startup rather than on whichever request first reaches the bad path.
+
+**2. A verifier's algorithm allowlist may not mix key families, and the
+key is validated against it eagerly.** The confusion attack needs two
+things at once: the verifier accepts a symmetric algorithm, and it holds a
+key the attacker also holds. A single verifier accepting both `RS256` and
+`HS256` is the only configuration where both can be true — and no
+legitimate deployment needs one, because one verifier has one key.
+`resolveAllowlist` refuses the combination, which removes the attack's
+precondition instead of trying to detect the attack. A deployment that
+genuinely accepts two algorithms builds two verifiers, which is more
+typing and is honest that two algorithms means two keys.
+
+The same function also refuses: an empty or absent allowlist (jose's
+default is the vulnerability), `none` past a cast, an asymmetric allowlist
+with raw bytes, a *private* key on a verifier, and — separately — a
+`Uint8Array` whose first five bytes are `-----`, because that is a PEM
+document being passed as a secret, i.e. the attack primitive itself. That
+last check is already unreachable given the family check; it exists so the
+error names the real mistake.
+
+**3. RFC 7518 §3.2's minimum HMAC secret length is enforced here because
+`jose` does not enforce it.** HS256 with an 8-byte secret is
+brute-forceable offline from a single captured token — the token is its
+own oracle. Enforced only where the length is visible (a `Uint8Array`, a
+`KeyObject`'s `symmetricKeySize`, an `oct` JWK's `k`); a non-extractable
+`CryptoKey` exposes nothing and is left to the caller rather than refused.
+
+**4. Secure-by-default deviations from `jose`, all reversible by an
+explicit option.** `exp` required (`requireExpiration: false` to opt out);
+`issuer` and `audience` required *by the type*, not optional — an
+unchecked audience accepts another service's tokens from the same issuer;
+clock tolerance defaults to 0 and is **capped at 300s**, because tolerance
+extends every expired token's life by exactly that much and a need for
+more than five minutes is a clock problem.
+
+**5. `verify` returns `Result<VerifiedJwt, JwtVerificationError>`; every
+misconfiguration *throws*.** The asymmetry is the S11 question asked
+again and answered the other way. A rejected token is the single most
+ordinary outcome of serving untrusted traffic and every caller must branch
+on it, so it is a `Result` — and a `Result` puts handling it in the type,
+where `try`/`catch` lets you forget it invisibly. A verifier configured to
+accept HS256 against an RSA public key has no runtime recovery; the only
+correct response is to fail loudly before the process serves a request,
+which is why every check that raises `AuthConfigurationError` runs at
+construction.
+
+**6. `JwtVerificationError extends UnauthorizedError` — after fixing
+`core` rather than working around it.**
+
+The first draft could not do this. S7 decision 4 put the taxonomy
+discriminant on `name` as a string literal per built-in, which made
+`declare name: 'JwtVerificationError'` unassignable to
+`'UnauthorizedError'`, so the class had to extend `AppError` directly and
+carry `httpStatus: 401` itself — losing `instanceof UnauthorizedError`
+for any generic auth handler. That was first recorded as a finding about
+`core` and worked around; on review it was fixed in `core` instead,
+because every future package subclassing a built-in hits the identical
+wall (S16 `access-control` and `ForbiddenError` is the next one).
+
+**The root cause was one property doing two contradictory jobs.** A
+taxonomy slot must stay *fixed* in a subclass — that is what keeps a
+`switch` exhaustive and keeps `ConflictError` unassignable to
+`NotFoundError`. A class identity must *vary* — that is what makes an
+error report itself correctly in a log. No type cleverness reconciles
+those (see 6a); they are two properties now:
+
+- **`kind`** — the literal, `readonly`, the thing to `switch` on,
+  **inherited unchanged** by subclasses. That inheritance is the design,
+  not a limitation: if a subclass could set its own kind, every existing
+  exhaustive switch would silently start falling through to `default`
+  the moment a downstream package defined one.
+- **`name`** — `string` everywhere, free to narrow, still what appears
+  in logs and stack traces.
+
+`JwtVerificationError` now extends `UnauthorizedError`, keeps
+`kind: 'UnauthorizedError'`, declares `name: 'JwtVerificationError'`, and
+narrows `details`. Asserted in `auth-utils/tests/types/jwt.test-d.ts` and
+in `core/tests/types/errors.test-d.ts`'s `subclassing a built-in error`
+block — **do not delete that block, it is the regression guard on this
+decision.**
+
+**6a. Two alternatives were probed with `tsc` and rejected. Re-run these
+before anyone "simplifies" the split away.**
+
+- *A generic `name` parameter* — `class UnauthorizedError<TName extends
+  string = 'UnauthorizedError'>`. Satisfies everything on paper:
+  distinctness holds, the default keeps existing usage unchanged,
+  `switch` stays exhaustive on a known union. **It does not work.**
+  `instanceof` on a generic class instantiates it at `any`, so inside
+  `if (e instanceof UnauthorizedError)` the expression
+  `e.name.toFixed(2)` compiles clean. Same trap S7 decision 3 documented
+  for `details`, on the field people actually log and switch on.
+- *A `unique symbol` brand per class.* Narrows correctly under
+  `instanceof` (unlike the generic) and allows free subclass names, but
+  gives up `switch` exhaustiveness and buys nothing the `kind` split does
+  not already give.
+
+**6b. Consequences already checked, so they need not be rediscovered.**
+
+- **`fromJSON` selects a class from `kind` alone, never from `name`.** It
+  parses untrusted input: a payload must not be able to name its own
+  class, and a payload whose `kind` and `name` disagree must not resolve
+  by a fallback order nobody would think to check. Absent or
+  unrecognized `kind` yields a plain `AppError`; `name` rides along as
+  data. Both cases are tested.
+- This also partly improves the parked "fromJSON loses a custom
+  subclass's class" item: a serialized `JwtVerificationError` revives as
+  a real `UnauthorizedError` with its own `name` restored, rather than
+  collapsing to a bare `AppError`. `instanceof YourSubclass` still cannot
+  survive, and still deliberately has no registration API.
+- **HTTP responses are unaffected.** `api-kit` builds problem details
+  from an explicit field list (`type`, `title`, `status`, `detail`,
+  `code`, `details`) and never spreads `toJSON()`, so the new field
+  cannot reach a client. S7 decision 2 and S12's "map explicitly" paying
+  off; checked in `api-kit/src/problem-details.ts` rather than assumed.
+- **This is a breaking change against the published `core@0.1.0`**,
+  taken as a `minor` because the ecosystem is pre-1.0 and nothing
+  consumes it yet. No compatibility shim was kept — an earlier draft had
+  `fromJSON` fall back to `name` for 0.1.0-shaped payloads, and that was
+  removed once it was confirmed there is nothing to be compatible with.
+  Anything downstream that did `switch (error.name)` over the built-ins
+  switches on `error.kind`; runtime `name` strings are unchanged.
+
+**7. Rejection reasons are safe to return to the client, deliberately.**
+Distinguishing `expired` from `signature_invalid` is not a credential
+oracle the way distinguishing "no such user" from "wrong password" is: the
+holder of an expired token already knows it is theirs and needs telling to
+refresh rather than to re-authenticate. No message echoes the token, a
+claim value, or key material — asserted in
+`tests/edge-cases/malformed-tokens.test.ts`.
+
+**8. The header is read before verification but never *acted* on.**
+`inspectProtectedHeader` parses the unverified protected header and
+compares it only against configuration fixed at construction — it never
+lets a header value select a key, an algorithm, or a rule. Tokens carrying
+`jwk`, `jku`, `x5u`, `x5c`, `x5t`, `x5t#S256` or any `crit` are rejected
+outright rather than ignored. `jose` already ignores an embedded `jwk`
+(verified), but "ignored" and "rejected" differ in what lands in your
+logs: `signature_invalid` on a token carrying its own key reads like a
+stale key rotation, `untrusted_header` reads like what it is.
+
+The allowlist is therefore checked twice — once here, once by `jose`. That
+redundancy is intentional. The allowlist is this package's central
+promise, and a promise that holds only because a dependency happens to
+implement it is not a promise.
+
+**9. The error mapper catches `unknown`, not `JOSEError` — because a
+key/algorithm mismatch makes `jose` throw a plain `TypeError`.** Confirmed
+while probing the attacks: `jwtVerify(hsToken, rsaPublicKey, {algorithms:
+['RS256','HS256']})` raises `TypeError: CryptoKey instances for symmetric
+algorithms must be of type "secret"`, which is not a `JOSEError`. A
+`catch` narrowed to `JOSEError` would let that escape a request handler as
+an unhandled 500 instead of a 401. There is a `verification_failed`
+fallback so an unclassified failure is still a rejection: no path through
+`toVerificationError` returns success.
+
+**A real bug this caught:** `jose` reports a `maxTokenAge` violation as
+`JWTExpired` with `claim: 'iat'`, not as a distinct class. Reading only
+the class mislabelled it `expired` and would have told a client to refresh
+a token that had not expired. Now mapped to `too_old` by reading `.claim`.
+`toVerificationError` lives in `src/internal/jwt-errors.ts` as a pure
+function specifically so its unusual branches can be unit-tested directly
+— ESM namespaces are not spy-able, and the construction-time checks make
+most of those branches unreachable through the public API by design.
+
+**10. argon2id parameters: m=19456 KiB, t=2, p=1 — chosen from
+measurements, and deliberately the floor rather than the measured
+optimum.** Measured on an Apple M2, Node 24.19.0, median of 7:
+
+| Configuration | Time | Memory per concurrent login |
+|---|---|---|
+| `m=19456 t=2 p=1` (chosen) | 24 ms | 19 MiB |
+| `m=47104 t=1 p=1` | 25 ms | 46 MiB |
+| `m=65536 t=3 p=1` (RFC 9106 #2; `argon2`'s own default at p=1) | 120 ms | 64 MiB |
+| `m=65536 t=3 p=4` (`argon2`'s actual default) | 34–64 ms | 64 MiB |
+
+- **Memory is the only parameter that buys asymmetric defence.** An
+  attacker wins by running guesses in parallel; memory capacity and
+  bandwidth is what limits how many, because it is the resource a GPU or
+  ASIC cannot multiply cheaply. Raising `t` costs attacker and defender
+  the same multiple. Raising `m` costs the attacker *per parallel guess*.
+- **`p` buys nothing against an attacker** — lanes split one derivation
+  across cores while an attacker parallelises across guesses regardless.
+  The last two rows show it directly: `p=4` cuts wall time ~3.5x at
+  identical attacker cost. `p=1` chosen because it makes latency
+  predictable (the `p=4` figures varied 2x run to run under threadpool
+  contention) and keeps one login on one of libuv's four default
+  threadpool slots rather than four.
+- **The binding constraint is memory under concurrency, not latency.**
+  24 ms is far inside any interactive budget — latency is not what stops
+  us going higher. 19 MiB supports ~100 concurrent logins in 1.9 GiB;
+  64 MiB needs 6.4 GiB.
+- **Why the floor and not the optimum:** the failure modes are
+  asymmetric. Too little memory degrades continuously (cracking gets
+  cheaper in proportion). Too much fails discontinuously — the process
+  cannot allocate during a login burst and the service is *down*, for
+  everyone, including users whose passwords were never at risk. A library
+  default has to survive the worst deployment it lands in (a 512 MiB
+  container, a 128 MiB serverless floor). The README carries this table
+  so a consumer can raise it with data rather than repeating the guess,
+  and `passwordNeedsRehash` exists so raising it is safe.
+
+**11. Constant-time verification is two axes, and the famous one is not
+the one that leaks.** The digest comparison is `crypto.timingSafeEqual`
+inside `argon2.verify` — **read in `argon2@0.45.1`'s `argon2.cjs`, not
+assumed** — and it cannot throw its own length error because the candidate
+is derived at `hashLength: actual.byteLength`. The axis that actually
+leaks is the control flow around the derivation, and this package closes
+it: **`verifyPassword` spends a full derivation even when the stored hash
+is unusable.** A corrupted row, a bcrypt leftover, or a sentinel written
+for a locked account would otherwise return in microseconds where a real
+account takes ~24 ms — an oracle for which accounts exist and which are
+locked, with no successful login required. `verifyPasswordDecoy` does the
+same for the no-such-user branch, by spending one real derivation rather
+than comparing against a canned decoy digest (same cost, one fewer
+constant to keep in sync).
+
+`verifyPassword` takes an optional `params` used **only** on the
+unusable-hash path, because the parameters of an unreadable digest cannot
+be recovered from it — without that, a deployment on non-default
+parameters has visibly different timing on that branch and the oracle
+reopens.
+
+`tests/attacks/password-timing.test.ts` asserts every branch sits within
+1/3x–3x of the baseline. The band is wide on purpose (a shared CI runner
+cannot give tight timing bounds, and a flaky test gets deleted) and is
+still two orders of magnitude away from the regression it guards.
+**Verified in both directions**, per the S7 coverage-gate precedent: with
+the equalising work removed, the corrupted-row branch collapses to 0.0 ms
+against a 15.4 ms baseline (0.00004x) and the test fails with a message
+naming the oracle; restored, it passes.
+
+**12. Four `argon2@0.45.1` behaviours the wrapper exists to fix, each
+confirmed against the real library and each asserted in
+`tests/unit/password.test.ts` so the claims cannot rot.**
+
+| `argon2` does | this package does |
+|---|---|
+| `verify()` **throws** on a malformed digest (`TypeError: pchstr must contain a $ as first char`; a structurally-valid-but-nonsense argon2id string raises `Output pointer is NULL` from the native binding) | returns `false` — one corrupted row must not 500 a login handler |
+| `verify()` accepts an `$argon2d$` digest and returns `true` | still verifies it, so migrating in locks nobody out, but flags it |
+| `needsRehash()` returns **`false`** for an `$argon2d$` digest whose `m`/`t`/`p` match | returns `true` — checks the variant, so rehash-on-login actually migrates off the data-dependent variant |
+| `needsRehash()` **throws** on a malformed digest | returns `true` |
+
+**13. `verifyPassword` returns a bare `boolean`, and `passwordNeedsRehash`
+is a separate synchronous function.** The obvious design — one call
+returning `{ valid, needsRehash }` — is a catastrophic footgun here:
+`if (await verifyPassword(h, p))` on an object is always truthy, so every
+password on earth works. Splitting them removes the trap entirely, and
+turns out to be the better factoring anyway: rehash-need is a property of
+the stored digest alone, so the function needs no password and can be run
+as an audit across a whole table. Asserted in
+`tests/attacks/password-timing.test.ts`.
+
+**14. Passwords are not Unicode-normalised, and an empty password is
+rejected.** Not normalising follows S7 decision 7 (`core`'s parsers never
+rewrite their input): normalising silently changes what a user's password
+*is*, and a deployment that later stopped would lock out everyone who
+typed a composed character. Rejecting `''` is the one policy opinion here,
+and it is aimed at a specific bug rather than at users — an undefined
+field coercing to `''` would otherwise hash and verify cleanly and hand
+everyone with the same bug a working credential. Minimum length is still
+the application's call. Input is capped at 1024 UTF-8 bytes: argon2 has no
+length limit of its own (unlike bcrypt it does not silently truncate), so
+the cap is purely to stop an unbounded password field amplifying a login
+flood on top of the `memoryCost` it already costs.
+
+**15. `argon2` is a peer dependency; `jose` is a regular one; the package
+ships two entry points.** The native binding must match the consumer's
+Node ABI and platform, and a library pinning its own copy can produce two
+argon2 binaries in one tree and leaves the consumer unable to patch a CVE
+in it without waiting on a release here — the same reasoning class as
+`api-kit`'s optional framework peers, and unlike `logger`'s plain `pino`
+dependency, which is pure JavaScript. `jose` is pure JS with zero
+dependencies and is a plain dependency. `./jwt` is a second entry point
+that statically imports neither Node built-ins nor `argon2`, so it runs on
+edge runtimes — **verified by running the built ESM bundle in a process
+with `NODE_PATH=/nonexistent` and completing a sign/verify round trip**,
+not by grepping the bundle.
+
+**16. `pnpm-workspace.yaml` sets `allowBuilds: { argon2: false }`.** pnpm
+11 blocks postinstall scripts by default and exits 1 on an unresolved
+prompt, so this had to be answered rather than left. `false` is correct:
+argon2 ships prebuilds for darwin-arm64, linux-x64/arm64/arm, freebsd and
+win32-x64 inside its own tarball and `node-gyp-build` resolves them at
+require time — verified by hashing and verifying a password with the
+install script suppressed. Allowing the script would let node-gyp fall
+back to compiling from source, which needs a toolchain in CI and produces
+a binary the lockfile's integrity hash never covered.
+
+### S13 — the `turbo.json` task graph, and a class of race it was hiding
+
+**One root cause, four manifestations, three of them latent until a sixth
+package existed.** Six packages' integration tests deliberately re-run
+`tsup` mid-test ("never trust a stale artifact", S7), and tsup's
+`clean: true` deletes `dist/` before regenerating it. That makes **`test`
+a writer of `build`'s declared outputs.** Every task that reads a
+dependency's `dist/` was therefore racing it, and `turbo.json` expressed
+none of that ordering.
+
+What was actually observed, in the order it surfaced:
+
+1. **`auth-utils#build` → TS7016**, `Could not find a declaration file for
+   module '@firstprinciples/core'` — its dts step read
+   `core/dist/index.d.ts` while `core#test`'s rebuild had it deleted.
+   **3 of 3 clean runs.** This is the S10 defect one level out: S10
+   ordered `test` after `^test`, but nothing ordered a *different*
+   package's `build` against it.
+2. **`auth-utils#test` → ENOENT on its own `dist/index.d.ts`** — nothing
+   ordered a package's own `build` against its own `test`, so two tsup
+   processes cleaned and wrote the same directory. **2 of 5 clean runs.**
+3. **`api-kit#lint` → ENOENT on `core/dist/index.js`** — ESLint's
+   `projectService: true` resolves a workspace import through that
+   package's `dist/`, and `lint` declared no dependencies at all. **1 of
+   6 clean runs.**
+4. **`logger#test` → `ENOTEMPTY` / `ENOENT: mkdir .../logger/dist`** —
+   the intermittent race S10 found and parked: logger's two dist suites
+   each ran their own `tsup`, and vitest runs test files in parallel
+   workers, so they raced each other over one directory. **1 of 6 clean
+   runs**, still reproducing two sessions later.
+
+Also seen once and belonging to the same family: `api-kit#test` failing
+with `Hook timed out in 30000ms` — its `beforeAll` tsup rebuild starved
+by the extra concurrent build.
+
+**The fix, in two parts.** `turbo.json` now declares the ordering that was
+always implied: `test` depends on its own `build`, and `build`,
+`typecheck` and `lint` all depend on `^test` as well as `^build`.
+Semantically odd — lint does not care about test *results* — but correct,
+because `test` writes the files they all read; the comment in
+`turbo.json` says so at the point of use.
+
+`test` depending on its own `build` then makes the hand-rolled rebuilds
+**redundant**, because turbo's cache is keyed on source hashes: a cache
+hit means `dist/` already matches `src/`, and a source change re-runs the
+build. So the rebuild was removed from `auth-utils`'s dist suite and from
+**both** of `logger`'s, which is what finally closed manifestation 4.
+No assertion was removed anywhere — logger's `existsSync` checks still
+fail loudly if `dist/` is missing.
+
+**Verified: 8 consecutive from-clean
+`rm -rf .turbo packages/*/.turbo packages/*/dist packages/*/coverage &&
+pnpm turbo run lint typecheck test build` runs, all green**, against 3/5
+and 5/6 for the intermediate states above. Total CI work is unchanged —
+whichever task type runs first pays for the upstream builds and tests and
+the rest hit cache.
+
+**Still to do:** `core`, `http-client`, `cache-kit` and `api-kit` keep
+their redundant rebuilds. They are now harmless (their own `build` is
+ordered first, and readers wait on `^test`), but removing them would let
+all four `^test` edges collapse back to plain `^build` and make the graph
+honest again. Left alone here because it touches four packages' suites
+for no behavioural gain this session. Tracked under Parked problems.
+
+### S14 — `@firstprinciples/auth-utils` design decisions (rotation, reuse detection, rate limiting)
+
+**1. Refresh tokens are opaque, not JWTs — reversing an S13 hand-off
+note.** S13's "Open for S14" entry said `createJwtSigner`'s `jti` was
+"the identifier a reuse-detection store keys on", which assumed JWT
+refresh tokens. That was wrong and is not what got built. A refresh
+token has to be checked against the store on every use anyway, because
+rotation state lives there — so a signature adds a second validation
+path that decides nothing, plus size, plus claims that leak if the token
+does. Opaque tokens have no algorithm-confusion surface at all. The
+`jti` on *access* tokens is still useful for correlation and
+revocation lists, so nothing shipped in S13 is wasted; it just is not
+this. **S16 and anything else reading that old note should read this
+one instead.**
+
+**2. Atomicity is structural: a family is one record.** The brief's
+hardest requirement — no window where both tokens are valid or both are
+dead — is usually answered with a transaction spanning two keys, which
+most stores cannot give you over a pluggable interface. It is answered
+here by making the unit of storage the *family* rather than the token,
+so invalidating the presented token and installing its successor are
+edits to one object and leave as one write. There is no intermediate
+state to observe because there is no intermediate write. Asserted
+structurally in `tests/unit/refresh-state.test.ts` ("moves the presented
+token into the used set in the same object") and behaviourally in
+`tests/attacks/refresh-rotation.test.ts`.
+
+**3. Compare-and-set, not a lock.** What is left after decision 2 is the
+ordinary read-modify-write race. `RefreshTokenStore.compareAndSet` is
+the only method a backend has to think about. A lock was rejected: it
+needs a lease, and a lease needs a correct answer to "what if the holder
+stalls past it", which is the question distributed locking has never
+answered cleanly. A lost compare-and-set has no such failure mode — the
+loser retries, and **on retry it is the one that detects the reuse**,
+which is how the concurrency case resolves itself rather than needing
+separate handling. Implementable on Redis (`WATCH`/`MULTI` or Lua), SQL
+(`UPDATE … WHERE revision = ?`), and DynamoDB (conditional write).
+
+**4. Concurrent refresh with the same token is treated as theft, and
+that is not a compromise.** One rotation wins; the loser sees a rotated
+token and revokes the family, killing the winner's brand-new token too.
+From the server's position a double-submitting client and a thief are
+the same observation, and the brief is explicit that reuse must revoke
+the family. **Consequence to state plainly rather than bury: a client
+that double-submits its refresh logs the user out.** The fix is
+single-flighting on the client.
+
+**A grace window was considered and rejected on mechanics, not
+taste.** The usual mitigation is to return the *same* successor for a
+repeated presentation of the parent within N ms. That requires having
+the successor's plaintext to return — and the whole design stores only
+its digest. Adding a grace window means storing plaintext refresh tokens,
+which is the property the hashing exists to avoid, so the honest answer
+is to fix the client.
+
+**5. `reused` fires exactly once per family.** Revocation is checked
+*before* reuse in `decideRotation`, so once a family is dead later
+replays report `revoked`. Without that ordering one theft produces an
+unbounded stream of identical alerts — the ten-concurrent-attempt test
+asserts the exact distribution (`{ ok: 1, reused: 1, revoked: 8 }`)
+rather than just "one success".
+
+**Two other orderings in that function are load-bearing and are
+commented at the point of use:** reuse is checked *before* expiry,
+because a replayed token that has also aged out is still a replayed
+token and reporting `expired` would discard the only signal that
+matters; and family expiry before token expiry, so the caller is told to
+re-authenticate rather than to retry.
+
+**6. An unrecognised token does not revoke.** Reuse means a token the
+family really issued came back. A value it never issued is a guess or a
+corrupted cookie, and revoking on it would hand anyone who can send a
+bad string the power to end a session. Reported as `unknown_token`.
+
+**7. SHA-256 for tokens, argon2id for passwords.** Argon2's cost exists
+to make *guessing* expensive, and guessing only threatens a low-entropy
+input — which is what a human password is. A 256-bit uniformly random
+token cannot be guessed at any cost, so stretching it buys nothing and
+would put a ~24 ms derivation on the path of every refresh. What is
+needed is preimage resistance so a store read cannot be turned back into
+a usable token. The reasoning generalises: **pick the hash from the
+entropy of the input, not from the sensitivity of the field.**
+
+**8. The constant-time comparison S13 asked for exists, and the honest
+framing is smaller than it looks.** `hashesMatch` uses
+`crypto.timingSafeEqual` and returns `false` rather than throwing on a
+length mismatch (stored values come from a store this package does not
+own; a truncated row must fail a comparison, not crash a refresh). But
+what actually makes the leak harmless is that the compared values are
+already digests of the presented secret — a fully leaky `===` would leak
+the *hash*, and turning that back into a presentable token is a preimage
+attack. **Hashing before comparing is the defence; constant time is
+belt-and-braces**, kept because the argument stops holding the moment
+someone stores something other than a digest.
+
+**9. The rate limiter fails closed, deliberately unlike `cache-kit`.**
+S11 decided `wrap` swallows backend errors because a cache is a
+performance optimisation and must not become a new failure mode. A rate
+limiter is a *control*, and the same reasoning inverts: failing open
+means whoever can knock over your Redis has bought unlimited password
+guesses, which is worse than a login outage caused by a store that is
+already broken. `onStoreError: 'allow'` opts out. The one exception is
+`recordSuccess`, where a failure costs the user an unearned lockout and
+never lets an attacker through.
+
+**10. The limiter's key is the caller's, and the docs say why that is a
+security decision.** Keying on username alone lets anyone lock out any
+account they can name; keying on IP alone punishes a whole NAT and does
+nothing to an attacker with an address pool. The README recommends two
+limiters (tight per `username|ip`, looser per username) and a test
+demonstrates the pattern actually bounds a distributed attack. Counting
+must not depend on whether the account exists, or the limiter becomes
+the user-enumeration oracle `verifyPasswordDecoy` closes on the timing
+side.
+
+**11. Window doubles as lockout, and starts at the first failure.** One
+knob instead of two: "five failures in fifteen minutes, then locked out"
+and "five failures then locked for the rest of a fifteen-minute window"
+describe the same behaviour, and the second needs one fewer number and
+one fewer store key. The expiry is set on key *creation* and never
+extended — sliding it per increment would let a steady attacker hold one
+window open forever. It is a fixed window, so a boundary-timed attacker
+gets up to `2 × maxAttempts` in a burst; accepted and documented,
+because the sustained bound is what stops guessing.
+
+**12. `AttemptStore` is deliberately much smaller than
+`RefreshTokenStore`.** The only operation that must be atomic is an
+increment, and every store has one natively (`INCR`, `UPDATE … SET n =
+n + 1`, DynamoDB `ADD`). No revisions, no compare-and-set. Two
+contracts of different weight, each matched to what its problem actually
+needs, rather than one general-purpose abstraction over both.
+
 ---
 
 ## Gate status
@@ -592,7 +1107,9 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 | http-client | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐ | ☐ | ☑ | ☑ | ☐ |
 | cache-kit | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐ | ☐ | ☑ | ☑ | ☐ |
 | api-kit | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐† | ☐† | ☑ | ☑ | ☐ |
-| auth-utils | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| auth-utils | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐‡ | ☐‡ | ☑ | ☑ | ☐ |
+
+‡ Same caveat as `api-kit`: CodeQL and provenance-publish can only be confirmed once the branch is pushed and a release actually runs. Everything checkable locally is green. As of S14 this row covers the **whole** package — rotation, reuse detection and rate limiting all have their own tests, README sections and example sections.
 | access-control | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | bootstrap | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | queue | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
@@ -618,10 +1135,29 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 - **Found in S9, not fixed:** `tools/package-template/package.json` pins `eslint@^10.8.1` / `typescript@^7.0.2`, which don't match the locked `eslint@^9.39.5` / `typescript@^6.0.3` (see Decisions locked above — chosen for specific peer-dependency reasons). `core` and `logger` both used the locked versions directly rather than the template's, so no shipped package is affected yet, but the template itself will hand the wrong versions to the next package that copies it. Worth a one-line fix whenever a session is already touching the template for another reason.
 - **Found in S9, not fixed:** root `package.json`'s own top-level `eslint` devDependency is `^10.8.1`, not the locked `^9.39.5`. Doesn't affect CI (each package pins and lints at its own correct version), but does mean the local pre-commit hook (`lint-staged` → `eslint --fix`, run from repo root) executes at a different major version than what actually gates CI. Low priority; revisit if pre-commit ever behaves differently from CI on a lint rule.
 - **Fixed in S9, worth re-confirming after any future `pnpm install`:** root `package.json` had `@changesets/cli` at `^3.0.0` — silently drifted from S6's explicit `^2.31.1` pin (most likely a Dependabot dev-dependency-group bump between S6 and S7 that nobody cross-checked against S6's specific reasoning: `3.0.0` failed to install reliably in a clean CI environment). Reverted to `^2.31.1` in this session; full pipeline (lint/typecheck/test/build/audit/prettier, each run separately) reverified clean afterward. If Dependabot proposes bumping `@changesets/cli` again, the PR needs the same clean-environment-install check S6 did before merging, not a rubber-stamp.
-- **Found in S10, not fixed — an intermittent, pre-existing race inside `logger`'s own test suite, unrelated to `http-client`.** Repeatedly running `pnpm turbo run test` across the whole workspace (6+ from-clean-state runs, verifying the S10 `turbo.json` fix above) hit this once: `logger`'s `tests/integration/dist-node-interop.test.ts` and `tests/integration/dist-browser.test.ts` each have their own `beforeAll` that independently runs `execFileSync('npx', ['tsup'], { cwd: packageRoot })` to rebuild `logger`'s dist (the same "always rebuild, never trust a stale artifact" pattern from S7/S9). Vitest runs test *files* concurrently by default, so both `beforeAll`s can fire close together — two separate `tsup` **processes** racing on the same `dist/` (worse than the S9-documented race, which was two builds *within one* `tsup` invocation's config array). Failure seen: `Error: Command failed: npx tsup` inside `dist-browser.test.ts`'s `beforeAll`. Did not reproduce in `logger` run alone (3/3 clean) or in the other 6 full-workspace `turbo run test` runs — genuinely rare, likely needs enough concurrent system load (from other packages' simultaneous build/test tasks) to widen the collision window. Not fixed here: it's `logger`'s file, outside this session's `PKG-HTTP` ticket, and a real fix (serializing the two rebuilds — e.g. a single shared `beforeAll` across both integration test files, or `execFileSync` under a lock) deserves its own focused session rather than a drive-by edit. Likely affects real CI too, since `ci.yml`'s "Test with coverage" step is exactly `pnpm turbo run test` — if a PR's CI run ever fails on `logger`'s `dist-browser.test.ts` with this exact error, it's this race, not a real regression; retry the job.
+- **Found in S13, fixed at the ordering level, not at the root — `test` tasks write `build`'s outputs.** Six packages' integration tests re-run `tsup` mid-test (S7's "never trust a stale artifact") and `clean: true` deletes `dist/` first, so `test` writes what `build`, `typecheck` and `lint` all read. S13 declared the missing ordering in `turbo.json` and removed the now-redundant rebuilds from `auth-utils` and `logger`; the pipeline went from 3/5 to **8/8 clean runs** (full write-up in the S13 turbo section above, with all four observed manifestations). **The design is still upside-down**: `lint` should not have to depend on `^test`. Removing the remaining redundant rebuilds from `core`, `http-client`, `cache-kit` and `api-kit` would let all four `^test` edges collapse back to plain `^build`. Cheap, mechanical, and worth doing the next time a session is already in those files.
+- ~~**Found in S13** — `core`'s built-in error subclasses cannot be subclassed with a distinct `name`~~ — **RESOLVED in S13** by fixing `core` rather than working around it: the taxonomy discriminant moved onto a new `readonly kind` field and `name` is free. Breaking against the published `core@0.1.0`, taken as a minor since nothing consumes it yet. See S13 decisions 6/6a/6b above, including the two rejected alternatives and why. **S16 (`access-control`) can now subclass `ForbiddenError` directly.** Anything downstream that did `switch (error.name)` over the built-ins should switch on `error.kind`.
+- ~~**Open for S14 (`auth-utils`, second half)**~~ — **DONE in S14.** One thing in that entry turned out to be wrong and is worth flagging rather than quietly dropping: it said `jti` would be "the identifier a reuse-detection store keys on", which assumed JWT refresh tokens. Refresh tokens shipped **opaque** instead — see S14 decision 1 for why. The other two notes held: `expectedTyp` is the cross-token-kind guard, and the constant-time comparison was needed and built (`hashesMatch`), though S14 decision 8 records that hashing-before-comparing is what actually makes the leak harmless.
+- **Open, low priority, found in S14:** `createMemoryRefreshTokenStore` evicts lazily, on read, so a family nobody touches again occupies memory until its id is looked up. Fine for the single-process use it is scoped to, and a reason not to reach for it in production, but a periodic sweep would make it honest for long-running dev servers. The same applies to `createMemoryAttemptStore`.
+- **Open for whoever writes the first non-memory store:** there is no conformance suite for `RefreshTokenStore`. `api-kit` (S12) solved the equivalent problem for its three adapters with a shared conformance suite, and the same shape would apply here — a table of store-agnostic assertions any backend can run, with the compare-and-set atomicity requirement as the interesting case. Worth building alongside the first Redis implementation rather than before it, so it is written against a real second backend rather than an imagined one.
+- ~~**Found in S10, not fixed** — the intermittent race inside `logger`'s own test suite (its two dist suites each ran `tsup` into one directory)~~ — **RESOLVED in S13** by removing both rebuilds, now that `test` is ordered after the package's own `build`. It had still been reproducing at 1 in 6 runs. See the S13 turbo section above.
 
 ---
 
 ## Next session
 
-**S13 · `auth-utils`** — fresh chat, Claude Opus · **"ultrathink"**, and an explicit adversarial self-review pass afterward (per spec Day 6 — this is the ecosystem's highest-stakes-for-correctness package alongside `access-control`, not a place to default to Sonnet). Story: `PKG-AUTH`. Read `EXECUTION-CHECKLIST.md` and `sprocket-ecosystem-spec.md` §10.6 in `../Preparation_Docs/`. Build `@firstprinciples/auth-utils`: `argon2id` password hashing with documented, sane defaults (via the `argon2` npm package — no external hashing service), JWT issue/verify with **algorithm allowlisting** (explicitly reject `alg: none` and any algorithm not on the caller's allowlist — this is the specific, real-world vulnerability class the spec calls out by name), refresh-token rotation with reuse detection, and rate-limited login-attempt tracking behind a pluggable store (matching `cache-kit`'s bring-your-own-backend pattern, S11, rather than assuming Redis). Test focus per spec §5/§10.6: algorithm-confusion attack rejection specifically (a token signed with a different algorithm than the verifier expects), the rotation/reuse-detection state machine under concurrent use, and hashing round-trip correctness. Likely touches `core` for its error taxonomy (`UnauthorizedError` for a bad credential/token, at minimum) — read "S7 — `core` design decisions" above before assuming a new error class is needed; `NetworkError`'s promotion (S10) and `CacheBackendError`'s deliberate non-promotion (S11) are the two precedents for deciding whether a new one belongs in `core` or stays local. After the explicit adversarial review pass, treat timing-attack resistance in any comparison logic (token/hash comparison) as a specific thing to verify, not assume — `crypto.timingSafeEqual` or equivalent, not `===`, anywhere a secret is compared. Full DoD before finishing; update this file; open a PR.
+**S15 · adversarial security review of `@firstprinciples/auth-utils`** — fresh chat, Claude Opus · **"ultrathink"**. Deliberately *not* run inside S13 or S14, so the reviewer is not anchored on the reasoning that produced the code. Read `EXECUTION-CHECKLIST.md` and `sprocket-ecosystem-spec.md` §10.6 and §7 in `../Preparation_Docs/`.
+
+The package is complete: argon2id hashing, JWT issue/verify behind a mandatory algorithm allowlist, refresh-token rotation with family-wide reuse detection, and login-attempt rate limiting. Spec Day 6 asks for exactly this pass, and spec §5 flags `auth-utils` and `access-control` as the two highest-stakes-for-correctness packages.
+
+**Review it as an attacker, not as a reader.** The S13 and S14 decision sections above are the *claims* — treat them as things to falsify, not as context to absorb. Specifically worth attacking:
+
+- **The atomicity claim (S14 decisions 2–3).** Is there any interleaving where both the presented token and its successor are valid, or where neither is? What happens if a store's `compareAndSet` is *not* atomic, or lies about it? What if `read` returns a stale revision that later matches?
+- **The reuse-detection state machine.** Is there a path where a replayed token does *not* revoke the family? Look hard at `maxChainLength` eviction, at `current === undefined`, at a family revoked between read and write, and at the check ordering in `decideRotation`.
+- **Timing and enumeration.** `verifyPassword`'s equalising work, `verifyPasswordDecoy`, and whether the refresh path leaks family existence.
+- **The JWT allowlist**, against `jose`'s current behaviour rather than what `tests/attacks/` recorded at the time.
+- **Anything that trusts store contents.** Every value read back is attacker-influenced if the store is compromised.
+
+Two things S13/S14 already know are *not* findings, so do not spend the session re-deriving them: a client that double-submits its refresh logs the user out (S14 decision 4, deliberate, no grace window because it would require plaintext successor storage), and reuse of a token evicted past `maxChainLength` reports `unknown_token` rather than `reused` (a missed alert, not a missed rejection).
+
+Consider `Stryker` mutation testing on this package — spec §5 names it as a free stretch goal for exactly `auth-utils` and `access-control`, and the rotation state machine, being a pure function with a complete test table, is the ideal target. Report findings; fix what is real; record what is deliberate. Update this file; open a PR.
