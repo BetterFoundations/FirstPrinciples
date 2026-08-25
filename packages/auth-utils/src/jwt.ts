@@ -1,7 +1,7 @@
 import { err, ok, type Result } from '@firstprinciples/core';
 import { jwtVerify, SignJWT, type JWTPayload, type KeyInput } from 'jose';
 
-import { AuthConfigurationError, type JwtVerificationError } from './errors.js';
+import { AuthConfigurationError, JwtVerificationError } from './errors.js';
 import {
   assertKeyMatchesAllowlist,
   resolveAllowlist,
@@ -38,7 +38,18 @@ export const MAX_CLOCK_TOLERANCE_SECONDS = 300;
  * @public
  */
 export interface JwtClaims {
-  /** Subject. Whoever the token is about. */
+  /**
+   * Subject. Whoever the token is about.
+   *
+   * @remarks
+   * Non-optional because the verifier requires it — see the note on
+   * {@link JwtVerifierOptions.algorithms}' sibling checks in
+   * `createJwtVerifier`. `jose` does not require `sub` on its own, so
+   * without that check this field would be a type that lies: a token
+   * signed with the right key but carrying no `sub` would verify, and
+   * every caller reading `claims.sub` as a user id would get
+   * `undefined` while the compiler insisted it was a `string`.
+   */
   readonly sub: string;
   /** Issuer. Matched against the verifier's configured issuer. */
   readonly iss: string;
@@ -326,6 +337,12 @@ export function createJwtVerifier(options: JwtVerifierOptions): JwtVerifier {
   const requiredClaims = new Set(options.requiredClaims ?? []);
   for (const claim of requiredClaims) assertNonEmptyString(claim, 'requiredClaims entry');
   if (options.requireExpiration ?? true) requiredClaims.add('exp');
+  // Not optional, and deliberately not behind a flag. `iss` and `aud`
+  // are mandatory here for the same reason: a verifier that cannot say
+  // *who* a token is about has verified a signature, not an identity.
+  // `jose` never requires `sub` on its own, so omitting this leaves
+  // `JwtClaims.sub` a `string` that is `undefined` at runtime.
+  requiredClaims.add('sub');
 
   const { key, expectedTyp } = options;
   const clock = options.clock ?? Date.now;
@@ -348,6 +365,19 @@ export function createJwtVerifier(options: JwtVerifierOptions): JwtVerifier {
           ...(maxTokenAgeSeconds === undefined ? {} : { maxTokenAge: maxTokenAgeSeconds }),
           ...(expectedTyp === undefined ? {} : { typ: expectedTyp }),
         });
+
+        // `requiredClaims` above asserts presence; jose only type-checks
+        // `sub` when a `subject` option is set, which would pin it to one
+        // value. So the shape is checked here instead: without this, a
+        // token carrying `sub: 42` or `sub: ""` satisfies jose and still
+        // reaches the caller typed as a non-empty `string`.
+        const { sub } = payload;
+        if (typeof sub !== 'string' || sub.length === 0) {
+          throw new JwtVerificationError(
+            'claims_invalid',
+            'Claim `sub` is absent, empty, or not a string.',
+          );
+        }
 
         return ok({ claims: payload as JwtClaims, header });
       } catch (cause) {
