@@ -3,6 +3,7 @@ import { err, ok, type Result } from '@firstprinciples/core';
 import { AuthConfigurationError, RefreshTokenError, RefreshTokenStoreError } from './errors.js';
 import {
   decideRotation,
+  familyIssued,
   revoke,
   type RefreshFailureReason,
   type RevocationReason,
@@ -264,6 +265,8 @@ export function createRefreshTokenService(
       const parsed = parseToken(token);
       if (parsed === undefined) return reject('malformed');
 
+      let sawReuse = false;
+
       for (let attempt = 0; attempt < maxRetries; attempt += 1) {
         const stored = await store.read(parsed.familyId);
         if (stored === undefined) return reject('unknown_family');
@@ -280,6 +283,7 @@ export function createRefreshTokenService(
         });
 
         if (decision.kind === 'rejected') return reject(decision.reason);
+        if (decision.kind === 'reuse') sawReuse = true;
 
         // Both remaining outcomes write, and the write is the atomic
         // point: for `rotated` it carries the old token's invalidation
@@ -303,6 +307,26 @@ export function createRefreshTokenService(
         });
       }
 
+      // Exhausted the retries. If any attempt concluded that a token
+      // this family had already rotated away came back, that verdict
+      // stands: it was reached from a consistent snapshot, and nothing
+      // a racing writer can do makes a replayed token legitimate.
+      // Letting a lost race turn it into a store error was a real hole
+      // — the family stayed live and the one alert that fires per
+      // compromise never fired. Persist the revocation on its own retry
+      // budget and report the reuse either way.
+      if (sawReuse) {
+        try {
+          await revokeById(store, parsed.familyId, 'reuse_detected', clock, maxRetries);
+        } catch {
+          // The store is still failing. The request is refused
+          // regardless, and surfacing a 503 here would swallow the
+          // `reused` reason all over again — which is the failure this
+          // branch exists to prevent.
+        }
+        return reject('reused');
+      }
+
       // Not an authentication outcome, so not a `Result` branch — the
       // same split S13 drew between a rejected token and a
       // misconfigured verifier. The caller should retry, not
@@ -316,7 +340,9 @@ export function createRefreshTokenService(
     async revoke(token) {
       const parsed = parseToken(token);
       if (parsed === undefined) return;
-      await revokeById(store, parsed.familyId, 'revoked', clock, maxRetries);
+      // The presented hash is passed through so the family id alone
+      // cannot end a session. See `familyIssued`.
+      await revokeById(store, parsed.familyId, 'revoked', clock, maxRetries, parsed.presentedHash);
     },
 
     async revokeFamily(familyId, reason = 'revoked') {
@@ -325,12 +351,19 @@ export function createRefreshTokenService(
   };
 }
 
+/**
+ * @param presentedHash - When set, the caller must prove it holds a
+ * token this family issued before the family is revoked. Omitted by
+ * `revokeFamily`, which is the trusted admin path and is addressed by
+ * id on purpose.
+ */
 async function revokeById(
   store: RefreshTokenStore,
   familyId: string,
   reason: RevocationReason,
   clock: () => number,
   maxRetries: number,
+  presentedHash?: string,
 ): Promise<void> {
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     const stored = await store.read(familyId);
@@ -339,6 +372,11 @@ async function revokeById(
     // client retrying it should not get an error.
     if (stored === undefined) return;
     if (stored.family.revokedAt !== undefined) return;
+    // Same reasoning `decideRotation` applies to an unrecognised token:
+    // being able to send a string must not be the same as being able to
+    // end a session. Returning quietly rather than reporting keeps this
+    // from answering "is this a real family id?" for anyone probing.
+    if (presentedHash !== undefined && !familyIssued(stored.family, presentedHash)) return;
 
     const next = revoke(stored.family, clock(), reason);
     if (await store.compareAndSet(next, stored.revision)) return;

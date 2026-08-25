@@ -27,6 +27,7 @@ terse and factual — this is not a narrative log.
 | S12 | PKG-API | 2026-08-25 | `@firstprinciples/api-kit` built: a typed success/error envelope (`ApiEnvelope<T>` — `SuccessEnvelope<T> \| ErrorEnvelope`), RFC 7807 problem-details formatting of `core` errors, schema-library-agnostic request validation (`ValidateFn`, the exact `http-client` S10 adapter shape reused, not reinvented), and Express/Fastify/Hono adapters. 82 tests (unit / edge-cases / type-level / integration), **100% coverage on every metric**, lint clean, `pnpm audit` (prod and full) clean, each of the four built entries (`index`, `express`, `fastify`, `hono`) 1.6–1.94 kB brotli against a 3 kB budget. **The brief's real risk — drift between the three adapters — was addressed architecturally, not just by testing against it**: every adapter (`src/express.ts`, `src/fastify.ts`, `src/hono.ts`) is thin glue calling one shared, framework-free `src/internal/adapter-core.ts` (`buildSuccessResponse`/`buildErrorResponse`/`extractTarget`/`storeValid`) — there is exactly one place in the package that decides what a response looks like, so drift is structurally impossible rather than merely caught by review. The test suite mirrors this: **one shared conformance suite** (`tests/integration/conformance/conformance-suite.ts`, 12 assertions covering success/error/validation across all four `ValidationTarget`s) runs against all three adapters, each via a real HTTP server on loopback (`@hono/node-server` for Hono, since Hono's own app object isn't a Node server) — not three parallel test files that could quietly diverge. **`toProblemDetails` maps `core`'s typed fields explicitly, never spreads `toJSON()`** (S7 decision 2's own instruction to this session): `title` is the HTTP status's reason phrase (a static table, `src/internal/status-text.ts`), not the error's `message` — `detail` carries that instead — because RFC 7807 asks `title` to stay constant across every occurrence of a `code`, and an `AppError.message` is written per-occurrence (`"No user 42"`, not `"user not found"`); verified exhaustively over the whole built-in error taxonomy in `tests/edge-cases/error-taxonomy-mapping.test.ts`, not just spot-checked on one class. **A non-`AppError` is normalized without ever leaking its own message** (`src/internal/normalize-error.ts`) — the same "don't trust an arbitrary thrown value's message" posture `core`'s own error handling takes, verified by a test asserting a raw driver-error-shaped message (with a fake password in it) never reaches the response. **Each framework is an optional peer dependency in a stronger sense than typical**: `express.ts`/`fastify.ts`/`hono.ts` only ever `import type` their framework, never a runtime import, so tsup erases the import entirely — confirmed, not assumed, in `tests/integration/dist-bundle.test.ts`, which rebuilds `dist/` fresh and checks every built entry stays under 10 KB raw (a real bundled framework would be tens of KB). **A design question resolved the way the brief pointed at `cache-kit` (S11) for**: `runValidation` returns `Result<T, ValidationError>` internally (an expected, branch-worthy outcome, matching `core`'s convention) but every adapter's `validateRequest` re-throws that `Err` as a real `ValidationError` at the framework boundary — reasoned through rather than copied, since an HTTP adapter's error-handling entry point is the one place *every* kind of request-handling failure surfaces, not a second, validation-only channel. `examples/api-kit` added and actually run (not just written): all four scenarios (success envelope, `NotFoundError` → RFC 7807, validation pass/fail, an unexpected throw normalized) produced the expected real output over real `fetch` calls against a real Express server. Root `README.md` updated with a one-line description + link. Changeset added (`api-kit-initial-release.md`, `minor`, landing `0.0.0` → `0.1.0`). Docs site page deferred, same as `core`/`logger`/`http-client`/`cache-kit` (`docs/` still doesn't exist). CodeQL and provenance can only be confirmed once pushed and published — not verified in this session, per the Per-package DoD matrix below. Committed on branch `feat/s12-api-kit-package`, not pushed — human raises the PR. |
 | S13 | PKG-AUTH (first half) | 2026-08-25 | `@firstprinciples/auth-utils` — **hashing and JWT only**; refresh-token rotation, reuse detection and login-attempt tracking are deliberately deferred to S14. argon2id hashing with parameters chosen from measurements taken on this machine (table in the README and in decision 10 below), and JWT issue/verify behind a **mandatory algorithm allowlist validated against the key at construction time**. The design premise came from evidence, not assumption: before writing any of it, both `alg: none` and RS256→HS256 confusion were fired at raw `jose@6.2.10`, and **two attacks landed** — `jwtVerify(token, pemBytes)` with jose's optional `algorithms` omitted verified an attacker-forged HS256 token, and a token with no `exp` verified indefinitely. Both are now passing tests in `tests/attacks/` alongside the six the brief named (`alg: none`, algorithm confusion, `exp`, `nbf`, wrong `iss`, wrong `aud`) plus header key-injection (`jwk`/`jku`/`x5u`/`x5c`/`crit`), cross-key substitution, and HMAC secret-strength. 248 tests (unit / edge-case / attacks / integration / type-level), coverage 99.64% statements / 97.56% branches / 100% functions / 100% lines, lint clean, `pnpm audit` clean prod+full, 4.92 kB and 4.09 kB against 6 kB / 5 kB budgets. **Four real defects were caught by the tests rather than by review:** a `maxTokenAge` violation mis-mapped as `expired` (jose reports it as `JWTExpired` with `claim: 'iat'`); the `verifyPassword` unusable-hash path burning work at *default* parameters, which reopened the timing oracle for any non-default deployment; a `core` design defect that made every built-in error class unsubclassable (fixed **in `core`** — the taxonomy discriminant moved onto a new `readonly kind` field, freeing `name`, which unblocks S16 too — rather than worked around in this package; breaking against the published `core@0.1.0`, taken as a minor since nothing consumes it yet), and a `turbo.json` task-graph defect with four separate manifestations, one of which (`auth-utils#build` reading `core/dist/index.d.ts` mid-delete) failed 3 of 3 clean runs. Fixing it also closed the `logger` race parked since S10; the full-workspace pipeline went from 3/5 to **8/8 consecutive from-clean green runs** (see the S13 turbo section below). PR: TBD.
 | S14 | PKG-AUTH (second half) | 2026-08-25 | `@firstprinciples/auth-utils` completed: refresh-token rotation with reuse detection, and login-attempt rate limiting, both over a bring-your-own store with an in-memory default. **Atomicity came from the data model, not from a distributed transaction** — a token *family* is one record, so invalidating the presented token and issuing its successor are edits to one object and reach the store as a single write; the only remaining race is the ordinary read-modify-write, handled with compare-and-set. Reuse revokes the **whole family**, and `reused` fires exactly once per family. 383 tests (unit / edge-case / attacks / integration / type-level), coverage 99.78% statements / 98.13% branches / 100% functions / 100% lines, lint clean, audit clean, 6.88 kB and 4.13 kB against 9 kB / 5 kB budgets. The state machine is a **pure function** (`decideRotation`), which is what makes "test every transition" a complete table rather than a sampling. Concurrency was verified rather than assumed: an instrumented store counts lost compare-and-sets to prove the two-client race is real and not passing because the awaits never interleaved. **One S13 hand-off assumption was reversed** — see decision 1 below. PR: TBD. |
+| **POST-S14** | — | 2026-08-25 | **Adversarial security review of `auth-utils` — three real defects found, fixed, and regression-tested.** Reviewed source and tests only, with the planning docs deliberately unread, so nothing was accepted on the strength of its own design note. **Two of the five categories came back clean, and are recorded as clean rather than padded**: (a) *algorithm confusion* survived every vector attempted — `alg: none` and its case/whitespace variants, RS256→HS256 via both PEM text and stripped DER, an RSA public key handed in as a JWK and as an `oct` secret, an undersized `oct` JWK, a mixed-family allowlist, intra-asymmetric swaps (ES256 against an RSA key, an ES256 signature relabelled `EdDSA`), and a duplicate-`alg` header where `JSON.parse` keeps the last key; construction-time family pinning plus jose's own key/alg agreement caught all of them. (b) *timing* — a grep of every `===`/`!==`/`includes`/`indexOf`/`startsWith` in `src/` confirms no comparison touches a secret outside `hashesMatch` (`timingSafeEqual`) and `argon2.verify`; the one short-circuit that does exist (`usedHashes.some`) leaks only the index of an already-matched used hash, and revokes either way. **The three defects all sat where the existing tests did not look**, which is the ordinary pattern — the suite is genuinely adversarial (it mints attack tokens with jose's own primitives rather than through the package's signer, and asserts rejection reasons, not just failure), so the gaps were specific rather than systemic. Each finding below was reproduced against the unfixed code before any fix was written, and each regression test was re-run against the reverted source and observed to fail: **15 of the 22 new tests fail on the original code; the other 7 are the must-not-regress guards and pass on both sides.** Full suite 405 tests (was 383), coverage 99.79% statements / 98.21% branches / 100% functions / 100% lines, lint and `tsc --noEmit` clean, 7.02 kB / 4.18 kB against the 9 kB / 5 kB budgets. Findings and fixes in the POST-S14 section below. |
 
 ---
 
@@ -1082,6 +1083,115 @@ increment, and every store has one natively (`INCR`, `UPDATE … SET n =
 n + 1`, DynamoDB `ADD`). No revisions, no compare-and-set. Two
 contracts of different weight, each matched to what its problem actually
 needs, rather than one general-purpose abstraction over both.
+
+---
+
+### POST-S14 — adversarial security audit of `auth-utils` (findings and resolutions)
+
+Scope: `packages/auth-utils/` source and tests only. Reviewed as an
+attacker, against five named categories. Two came back clean (recorded
+in the POST-S14 session-log row above); three produced defects.
+
+**AUDIT-1 — `JwtClaims.sub` was typed `string` but never required at
+runtime. FIXED.** `src/jwt.ts`. The verifier required `exp` (via
+`requireExpiration`) and checked `iss`/`aud` through jose's own options,
+but nothing required `sub` — and jose does not require it on its own.
+So a token signed with the *correct* key and carrying no `sub`
+verified, and `result.value.claims.sub` came back `undefined` through a
+type that promised a non-empty `string`. The realistic path is not a
+forgery but any *other* holder of the signing key minting a subject-less
+token: an SDK, a legacy service, a migration script, a
+client-credentials grant. A handler doing `loadUser(claims.sub)` then
+looks up `undefined`, and what that resolves to is the application's
+problem — an empty filter, a first-row match, a permissive cache key.
+**Fix:** `sub` is added to `requiredClaims` unconditionally, *and* its
+shape is checked explicitly after `jwtVerify` — because
+`requiredClaims` asserts presence only, and jose type-checks `sub` just
+when a `subject` option pins it to one value, so `sub: 42` and
+`sub: ""` both satisfied it. Rejected as `claims_invalid`. Deliberately
+**not** behind an opt-out flag, matching `issuer`/`audience`, which are
+mandatory with no escape hatch for the same reason: a verifier that
+cannot say *who* a token is about has verified a signature, not an
+identity. This is a breaking change for any caller minting subject-less
+tokens, taken knowingly — the package is unpublished, and the change
+fails closed.
+
+**AUDIT-2 — a detected token replay was discarded when its write lost a
+race. FIXED.** `src/refresh.ts`. `rotate`'s retry loop treated a `reuse`
+decision like any other: compare-and-set, and on failure `continue`. If
+the budget ran out while the last decision was `reuse`, the loop fell
+through to `throw new RefreshTokenStoreError(...)` — so a **confirmed
+replay of a rotated token produced a 503, left the family fully live,
+and fired no `reused` alert at all.** The security verdict was made
+correctly from a consistent snapshot and then thrown away because a
+different request happened to write first. Reproduced deterministically
+at `maxRetries: 1` (30/30 trials: replay threw, family alive) and via an
+instrumented store at the default `maxRetries: 3`. It does not reproduce
+under ordinary two-request contention, because the first detector to
+land a write revokes the family and every later reader then short-
+circuits on `revoked` — so this needs sustained contention or a lowered
+retry budget, both reachable in production on a shared store.
+**Fix:** the loop records whether any attempt concluded `reuse`; on
+exhaustion it re-attempts the revocation on `revokeById`'s own retry
+budget and returns `reject('reused')` regardless. The `reused` reason is
+the alert, so surfacing a 503 instead is precisely the failure. **The
+fix's honest limit is tested, not glossed:** if the store accepts no
+write at all the family cannot be revoked, and the test asserting that
+says so — the caller is still told `reused` rather than 503. The
+"`reused` fires exactly once per family" property is preserved and
+re-asserted, since losers that find an already-revoked family still exit
+the loop reporting `revoked` and never reach the new branch.
+
+**AUDIT-3 — logout revoked a session on a family id alone, with no proof
+of possession. FIXED.** `src/refresh.ts`, `src/internal/refresh-state.ts`.
+`revoke(token)` called `parseToken` purely to extract `familyId`, then
+revoked — the presented secret half was hashed and never compared.
+**Any string of the form `<familyId>.<anything>` ended the session.**
+The family id is not a secret by design, and the package says so twice:
+`IssuedRefreshToken.familyId` is documented "Safe to log — useful for
+correlating a session's whole chain", and it is the token's own first
+segment, so the common "log a redacted token prefix" habit exposes it
+directly. Anyone with log, trace, or error-report access could log out
+any user, repeatedly. This also contradicted the package's own stated
+reasoning: `decideRotation` explicitly declines to revoke on an
+unrecognised token because "treating a corrupted cookie as an attack
+would hand anyone who can send a bad string the power to end a
+session" — which is exactly what `revoke` did. **Fix:** a new
+`familyIssued(family, presentedHash)` checks the presented hash against
+the live token and the used-hash set, constant-time per candidate via
+`hashesMatch`; `revoke` passes its hash through and `revokeById` skips
+the write when it does not match. A rotated-away hash still counts, so a
+client retrying a half-completed logout with a superseded token is not
+locked out of logging out. Non-matching calls return silently rather
+than reporting, so the endpoint cannot be used to enumerate live family
+ids. `revokeFamily(familyId)` is untouched — it is the trusted admin
+path and is addressed by id on purpose.
+
+**Two non-findings, recorded so they are not re-investigated.** (1) The
+rate limiter's `decide()` fails *closed* on every malformed counter a
+broken store can return (`undefined`, `NaN`, a numeric string) — the
+one exception is a negative `count`, which allows, but that requires a
+store inventing negative numbers and is not attacker-reachable.
+`remaining` can surface as `NaN` from such a store, which is cosmetic
+but would reach a `Retry-After` header. (2) `rotate` lets a store's own
+thrown error propagate rather than wrapping it in
+`RefreshTokenStoreError`; it fails closed and the store contract asks
+implementers to throw that type themselves, so this is contract-
+respecting, not a hole.
+
+**On the test suite's own claims.** The existing `tests/attacks/` suite
+does what its header says — it builds tokens with jose's low-level
+primitives rather than through this package's signer, and asserts a
+specific rejection reason rather than mere failure. It is not
+security-flavoured happy-path testing. Its gaps were narrow and mapped
+one-to-one onto the three findings: no test asserted anything about a
+token without `sub`; the "contention that never settles" tests exercised
+only the *rotation* path's exhaustion, never the *reuse* path's; and
+every `revoke` test passed a genuine token, so the missing possession
+check was invisible. New coverage lives in
+`tests/attacks/audit-regressions.test.ts` (22 tests), kept in
+`tests/attacks/` because that is where a test that encodes an
+exploitation scenario belongs.
 
 ---
 

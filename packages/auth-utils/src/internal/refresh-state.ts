@@ -210,6 +210,35 @@ export function decideRotation(input: {
   };
 }
 
+/**
+ * Whether `presentedHash` is a token this family actually issued —
+ * either the live one or one already rotated away.
+ *
+ * @remarks
+ * This is the possession proof behind logout. The family id travels in
+ * the token's first segment, is returned to the caller as
+ * `IssuedRefreshToken.familyId`, and is documented as safe to log — so
+ * it is exactly the sort of value that ends up in an access log, an APM
+ * trace, or a half-redacted token prefix. Treating knowledge of it as
+ * authority to end a session would hand anyone who has ever read a log
+ * line the power to log any user out.
+ *
+ * A rotated-away hash counts. A client retrying a logout it already
+ * half-completed is holding a superseded token, and refusing it would
+ * make logout non-idempotent for the one case that most needs to be.
+ *
+ * Constant-time per candidate, via {@link hashesMatch}.
+ *
+ * @param family - The family as read from the store.
+ * @param presentedHash - Base64url SHA-256 of the presented token's secret half.
+ */
+export function familyIssued(family: TokenFamily, presentedHash: string): boolean {
+  if (family.current !== undefined && hashesMatch(family.current.hash, presentedHash)) {
+    return true;
+  }
+  return family.usedHashes.some((used) => hashesMatch(used, presentedHash));
+}
+
 /** Returns `family` marked revoked. A no-op if it already is. */
 export function revoke(family: TokenFamily, now: number, reason: RevocationReason): TokenFamily {
   if (family.revokedAt !== undefined) return family;
