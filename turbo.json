@@ -1,17 +1,55 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
+    // Two ordering edges here exist because of one underlying fact:
+    // several packages' integration tests deliberately re-run `tsup`
+    // mid-test ("never trust a stale artifact", S7), and tsup's
+    // `clean: true` deletes `dist/` before regenerating it. That makes
+    // `test` a *writer* of `build`'s declared outputs, in the same
+    // directory, which races anything reading them.
+    //
+    // `test` depends on its own `build` (S13). Without it nothing
+    // ordered a package's own build against its own test, so two tsup
+    // processes could clean and write the same `dist/` at once —
+    // observed as ENOENT on `dist/index.d.ts` in `auth-utils`'s own
+    // integration test on 2 of 5 clean runs. This edge also makes the
+    // hand-rolled rebuilds redundant: turbo's cache is keyed on source
+    // hashes, so a cache hit means `dist/` already matches `src/`.
+    //
+    // `build`/`typecheck` depend on `^test` (S13). This is the S10
+    // defect one level out: S10 ordered `test` after `^test`, but
+    // nothing ordered a *different* package's build against it, so
+    // `auth-utils#build`'s dts step read `core/dist/index.d.ts` while
+    // `core#test` had it deleted — TS7016, on 3 of 3 clean runs.
+    // `typecheck` reads the same files and carries the same exposure.
+    //
+    // `lint` depends on both, for the same reason and found the same
+    // way (S13). ESLint's `projectService: true` resolves a workspace
+    // import through that package's `dist/`, so `api-kit#lint` failed
+    // with `ENOENT ... core/dist/index.js` while core was mid-rebuild.
+    // `lint` previously declared no dependencies at all, which is why
+    // this was latent: it is only reachable once enough packages exist
+    // to overlap.
+    //
+    // Total work in CI is unchanged — turbo caches, so whichever task
+    // runs first pays for the upstream builds and tests and the rest
+    // hit cache. The real fix is to stop tests rewriting the published
+    // `dist/` at all, which would let all four of these edges collapse
+    // back to plain `^build`. Tracked in EXECUTION-CHECKLIST.md under
+    // Parked problems, with all three observed manifestations.
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "^test"],
       "outputs": ["dist/**"]
     },
     "test": {
-      "dependsOn": ["^build", "^test"],
+      "dependsOn": ["build", "^build", "^test"],
       "outputs": ["coverage/**"]
     },
-    "lint": {},
+    "lint": {
+      "dependsOn": ["^build", "^test"]
+    },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build", "^test"]
     }
   }
 }
