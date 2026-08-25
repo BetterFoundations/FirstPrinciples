@@ -1,0 +1,17 @@
+{
+  "extends": "../../tools/tsconfig-base/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    // `src/password.ts` uses the `Buffer` global. tsup's dts worker does
+    // not pick `@types/node` up from auto-inclusion the way `tsc` does
+    // (it hands `tsc` a synthesized compiler-options object), so the
+    // types have to be named explicitly or the dts build fails with
+    // TS2591. This makes the Node globals available for type-checking
+    // only — `Buffer` appears in no exported signature, so nothing
+    // Node-specific reaches the emitted declarations, which is what
+    // keeps `dist/jwt.d.ts` usable on an edge runtime. Asserted in
+    // `tests/integration/dist-entrypoints.test.ts`.
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "*.config.ts"]
+}

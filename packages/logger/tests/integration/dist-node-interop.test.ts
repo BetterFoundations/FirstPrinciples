@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -21,7 +20,17 @@ let esm: IndexModule;
 let cjs: IndexModule;
 
 beforeAll(async () => {
-  execFileSync('npx', ['tsup'], { cwd: packageRoot, stdio: 'inherit' });
+  // No `tsup` rebuild here. Both of this package's dist suites used to
+  // run one independently, and vitest runs test files in parallel
+  // workers, so the two raced each other over a single `dist/` —
+  // logged as a known intermittent failure since S10 (`ENOTEMPTY` /
+  // `ENOENT: mkdir .../logger/dist`), and still reproducing on 1 of 6
+  // clean runs in S13. `turbo.json` now orders `test` after the
+  // package's own `build`, which gives the same "never trust a stale
+  // artifact" guarantee the rebuild was there for (turbo's cache is
+  // keyed on source hashes, so a cache hit means `dist/` matches
+  // `src/`) without two processes writing the same directory. The
+  // `existsSync` assertion below still fails loudly if it is missing.
   expect(existsSync(esmPath) && existsSync(cjsPath)).toBe(true);
 
   esm = (await import(esmPath)) as IndexModule;

@@ -84,7 +84,7 @@ Nothing here throws. Errors are values you construct and hand back; even
 | `ForbiddenError`                                  | class  | Authenticated but not allowed. `FORBIDDEN` / 403.                                                                |
 | `UnauthorizedError`                               | class  | Not authenticated. `UNAUTHORIZED` / 401.                                                                         |
 | `ConflictError`                                   | class  | Conflicts with current state. `CONFLICT` / 409.                                                                  |
-| `AppError#toJSON()`                               | method | Serializes name, code, httpStatus, message, details and the whole cause chain. **Never a stack.**                |
+| `AppError#toJSON()`                               | method | Serializes name, kind, code, httpStatus, message, details and the whole cause chain. **Never a stack.**          |
 | `AppError.fromJSON(value)`                        | static | Rebuilds an error from untrusted JSON. Returns `Result<AppError, ValidationError>`.                              |
 | `isAppError(value)`                               | guard  | Brand check that works across duplicate copies of this package, where `instanceof` cannot.                       |
 | `Result<T, E>`                                    | type   | `Ok<T> \| Err<E>`. `E` defaults to `AppError`.                                                                   |
@@ -173,15 +173,59 @@ A few decisions here are deliberate and worth knowing about.
   `instanceof` narrowing — handing back unchecked data at precisely the
   boundary where untyped data arrives. A function that does know the shape can
   still say so in its return type; see `BrandValidationError`.
-- **`name` is a string literal on each subclass.** The subclasses add no other
-  members, so without it TypeScript — being structural — would consider a
-  `ConflictError` assignable to a `NotFoundError`. The literal also makes
-  `switch (error.name)` exhaustive.
+- **`kind` is the discriminant; `name` is free.** `kind` is a string literal on
+  each built-in — the subclasses add no other members, so without a literal
+  somewhere TypeScript, being structural, would consider a `ConflictError`
+  assignable to a `NotFoundError`. It also makes `switch (error.kind)`
+  exhaustive.
+
+  `name` was that literal until 0.2.0, and doing both jobs with one property
+  made the built-ins **unsubclassable**: `declare name: 'JwtVerificationError'`
+  is not assignable to `'UnauthorizedError'`, so a downstream package could not
+  extend `UnauthorizedError` and still report its own name. They are two
+  properties now — see _Subclassing a built-in error_ below.
+
 - **Parsers do not normalize.** `parseUUID` accepts uppercase and returns it
   unchanged; a `parse` that silently rewrites its input surprises callers who
   compare strings.
 - **`ISODateString` validates the calendar, not just the shape.**
   `new Date('2026-02-31T00:00:00Z')` does not fail — it rolls over to 3 March.
+
+## Subclassing a built-in error
+
+Extend the built-in whose taxonomy slot you belong in, declare your own `name`,
+and leave `kind` alone:
+
+```ts
+import { UnauthorizedError } from '@firstprinciples/core';
+
+export class JwtVerificationError extends UnauthorizedError {
+  declare name: 'JwtVerificationError';
+  declare readonly details: { readonly reason: 'expired' | 'signature_invalid' };
+
+  constructor(reason: 'expired' | 'signature_invalid', message: string) {
+    super(message, { code: `JWT_${reason.toUpperCase()}`, details: { reason } });
+    this.name = 'JwtVerificationError';
+  }
+}
+```
+
+You get `instanceof UnauthorizedError`, the 401, and `api-kit`'s RFC 7807
+rendering for free. `kind` stays `'UnauthorizedError'` — deliberately, because
+anything switching on the taxonomy should treat your error as what it is. Your
+own identity lives in `name`, and narrowing `details` follows the same pattern
+`BrandValidationError` uses.
+
+`fromJSON` picks the class from `kind` and nothing else, so a serialized
+`JwtVerificationError` revives as a real `UnauthorizedError` carrying its
+original `name` — the right taxonomy and the right status. `instanceof
+YourSubclass` still cannot survive the round trip, since this package has no
+way to know your class.
+
+`name` is never used to select a class. It is data: `fromJSON` parses untrusted
+input, and letting a payload name its own class — or letting a payload whose
+`kind` and `name` disagree resolve by some fallback order — is not a decision
+worth leaving implicit.
 
 ## License
 

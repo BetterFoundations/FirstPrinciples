@@ -105,6 +105,7 @@ describe('toJSON', () => {
 
     expect(error.toJSON()).toEqual({
       name: 'NotFoundError',
+      kind: 'NotFoundError',
       message: 'No user 42',
       code: 'USER_NOT_FOUND',
       httpStatus: 404,
@@ -114,7 +115,7 @@ describe('toJSON', () => {
 
   it('omits absent keys rather than setting them to undefined', () => {
     const json = new AppError('boom').toJSON();
-    expect(Object.keys(json).sort()).toEqual(['code', 'httpStatus', 'message', 'name']);
+    expect(Object.keys(json).sort()).toEqual(['code', 'httpStatus', 'kind', 'message', 'name']);
   });
 
   it('never includes a stack trace', () => {
@@ -137,6 +138,7 @@ describe('toJSON', () => {
 
     expect(error.toJSON().cause).toEqual({
       name: 'ValidationError',
+      kind: 'ValidationError',
       message: 'inner',
       code: 'VALIDATION_ERROR',
       httpStatus: 400,

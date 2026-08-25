@@ -1,14 +1,24 @@
 {
-  "name": "@firstprinciples/PACKAGE_NAME",
+  "name": "@firstprinciples/auth-utils",
   "version": "0.0.0",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "PACKAGE_ONE_LINE_DESCRIPTION",
+  "description": "Authentication primitives: argon2id password hashing with documented parameters, and JWT issue/verify with a mandatory algorithm allowlist.",
+  "keywords": [
+    "auth",
+    "argon2",
+    "argon2id",
+    "password-hashing",
+    "jwt",
+    "jose",
+    "algorithm-confusion",
+    "typescript"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/BetterFoundations/FirstPrinciples",
-    "directory": "packages/PACKAGE_NAME"
+    "directory": "packages/auth-utils"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -22,6 +32,16 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
+      }
+    },
+    "./jwt": {
+      "import": {
+        "types": "./dist/jwt.d.ts",
+        "default": "./dist/jwt.js"
+      },
+      "require": {
+        "types": "./dist/jwt.d.cts",
+        "default": "./dist/jwt.cjs"
       }
     }
   },
@@ -42,11 +62,20 @@
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@firstprinciples/core": "workspace:*",
+    "jose": "^6.2.10"
+  },
+  "peerDependencies": {
+    "argon2": ">=0.44.0 <1"
+  },
   "devDependencies": {
     "@firstprinciples/eslint-config": "workspace:*",
     "@firstprinciples/tsconfig-base": "workspace:*",
     "@firstprinciples/vitest-config": "workspace:*",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "argon2": "^0.45.1",
     "eslint": "^9.39.5",
     "tsup": "^8.5.0",
     "typescript": "^6.0.3",
