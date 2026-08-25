@@ -1,0 +1,18 @@
+{
+  "name": "examples-api-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/api-kit.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/api-kit": "workspace:*",
+    "@firstprinciples/core": "workspace:*",
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

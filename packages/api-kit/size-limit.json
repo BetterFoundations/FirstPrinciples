@@ -1,0 +1,22 @@
+[
+  {
+    "name": "@firstprinciples/api-kit",
+    "path": "dist/index.js",
+    "limit": "3 KB"
+  },
+  {
+    "name": "@firstprinciples/api-kit/express",
+    "path": "dist/express.js",
+    "limit": "3 KB"
+  },
+  {
+    "name": "@firstprinciples/api-kit/fastify",
+    "path": "dist/fastify.js",
+    "limit": "3 KB"
+  },
+  {
+    "name": "@firstprinciples/api-kit/hono",
+    "path": "dist/hono.js",
+    "limit": "3 KB"
+  }
+]

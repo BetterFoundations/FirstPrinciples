@@ -13,6 +13,7 @@ Agent instructions: [AGENTS.md](AGENTS.md).
 | [`@firstprinciples/logger`](packages/logger)           | Structured, isomorphic logging with automatic secret/PII redaction and `AsyncLocalStorage` correlation IDs.                                       |
 | [`@firstprinciples/http-client`](packages/http-client) | A typed `fetch` wrapper: discriminated-union results, retry with backoff, combined timeout/abort, pluggable validation.                           |
 | [`@firstprinciples/cache-kit`](packages/cache-kit)     | A backend-agnostic cache: `get`/`set`/`wrap`/`invalidate` over in-memory LRU or Redis, tag invalidation, single-flight cache-stampede protection. |
+| [`@firstprinciples/api-kit`](packages/api-kit)         | A typed success/error envelope, RFC 7807 problem-details formatting, schema-agnostic request validation, and Express/Fastify/Hono adapters.       |
 
 ## Contributing
 
