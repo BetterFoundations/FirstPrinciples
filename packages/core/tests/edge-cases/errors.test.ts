@@ -6,6 +6,8 @@ import {
   isErr,
   isOk,
   NotFoundError,
+  UnauthorizedError,
+  ValidationError,
   type SerializedError,
 } from '../../src/index.js';
 
@@ -171,7 +173,83 @@ describe('AppError.fromJSON on untrusted input', () => {
     if (!isOk(revived)) throw new Error('expected a success');
     expect(revived.value).toBeInstanceOf(AppError);
     expect(revived.value.name).toBe('PaymentDeclinedError');
+    // Re-serializing adds `kind: 'AppError'`, and that is the honest
+    // answer rather than a round-trip regression: the payload named a
+    // class this package has never heard of, so the revived object
+    // genuinely is a plain `AppError` wearing that name. A payload that
+    // carries its own `kind` keeps it — see the next two tests.
+    expect(revived.value.toJSON()).toEqual({ ...payload, kind: 'AppError' });
+  });
+
+  it('never picks a class from `name`, only from `kind`', () => {
+    // `name` is data. A payload that names a built-in but carries no
+    // `kind` is not enough to construct that built-in — otherwise an
+    // untrusted payload could pick its own class, and a payload whose
+    // two fields disagree would resolve by a fallback order nobody
+    // would think to check.
+    const revived = AppError.fromJSON({
+      name: 'ConflictError',
+      message: 'dup',
+      code: 'CONFLICT',
+      httpStatus: 409,
+    });
+
+    if (!isOk(revived)) throw new Error('expected a success');
+    expect(revived.value).not.toBeInstanceOf(ConflictError);
+    expect(revived.value.kind).toBe('AppError');
+    // ...but the name it claimed is still carried through as data.
+    expect(revived.value.name).toBe('ConflictError');
+  });
+
+  it('resolves a payload whose kind and name disagree in favour of kind', () => {
+    const revived = AppError.fromJSON({
+      name: 'ForbiddenError',
+      kind: 'ValidationError',
+      message: 'x',
+      code: 'X',
+      httpStatus: 400,
+    });
+
+    if (!isOk(revived)) throw new Error('expected a success');
+    expect(revived.value).toBeInstanceOf(ValidationError);
+    expect(revived.value.kind).toBe('ValidationError');
+    expect(revived.value.name).toBe('ForbiddenError');
+  });
+
+  it('revives a downstream subclass into its parent taxonomy slot', () => {
+    // What `kind` buys over the old name-only dispatch: an
+    // `auth-utils`-style subclass used to collapse to a bare `AppError`
+    // with a 500-ish identity. Now it comes back as a real
+    // `UnauthorizedError` — right class, right 401 — keeping its own name.
+    const payload = {
+      name: 'JwtVerificationError',
+      kind: 'UnauthorizedError',
+      message: 'Token has expired.',
+      code: 'JWT_EXPIRED',
+      httpStatus: 401,
+      details: { reason: 'expired' },
+    };
+
+    const revived = AppError.fromJSON(payload);
+    if (!isOk(revived)) throw new Error('expected a success');
+    expect(revived.value).toBeInstanceOf(UnauthorizedError);
+    expect(revived.value.name).toBe('JwtVerificationError');
+    expect(revived.value.kind).toBe('UnauthorizedError');
+    expect(revived.value.httpStatus).toBe(401);
     expect(revived.value.toJSON()).toEqual(payload);
+  });
+
+  it('ignores a `kind` that names no built-in, rather than trusting it', () => {
+    const revived = AppError.fromJSON({
+      name: 'Whatever',
+      kind: 'NotARealKind',
+      message: 'x',
+      code: 'X',
+      httpStatus: 400,
+    });
+
+    if (!isOk(revived)) throw new Error('expected a success');
+    expect(revived.value.kind).toBe('AppError');
   });
 
   it('restores an explicit null detail rather than dropping the key', () => {
@@ -213,6 +291,8 @@ describe('unusual but legal construction', () => {
     expect(isAppError(error)).toBe(true);
     expect(error.toJSON()).toEqual({
       name: 'PaymentDeclinedError',
+      // Extending `AppError` directly leaves the base kind in place.
+      kind: 'AppError',
       message: 'declined',
       code: 'CARD_DECLINED',
       httpStatus: 402,

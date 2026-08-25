@@ -88,6 +88,11 @@ export interface SerializedError {
  * @public
  */
 export interface SerializedAppError extends SerializedError {
+  /**
+   * {@link AppError.kind} — the taxonomy slot, and the only field
+   * {@link AppError.fromJSON} will pick a class from.
+   */
+  readonly kind: string;
   /** {@link AppError.code}. */
   readonly code: string;
   /** {@link AppError.httpStatus}. */
@@ -156,6 +161,7 @@ function serializeUnknownError(
     const serialized: SerializedAppError = {
       name,
       message,
+      kind: value.kind,
       code: value.code,
       httpStatus: value.httpStatus,
       ...(value.details === undefined ? {} : { details: value.details }),
@@ -191,23 +197,51 @@ function serializeUnknownError(
  */
 export class AppError extends Error {
   /**
-   * The class's identity, and the discriminant for the built-in
-   * taxonomy.
+   * The specific class's identity, as it appears in logs and stack
+   * traces.
    *
    * @remarks
-   * Every built-in subclass narrows this to a string literal
-   * (`'NotFoundError'`, `'ConflictError'`, …). That is not cosmetic:
-   * the subclasses add no other members, so without it TypeScript —
-   * being structural — would consider a `ConflictError` assignable to a
-   * `NotFoundError`, and `Result<T, NotFoundError>` would silently
-   * accept any `AppError`. The literal makes them genuinely distinct
-   * types, makes `instanceof` narrow in the negative branch too, and
-   * makes `switch (error.name)` exhaustive.
+   * Deliberately `string` on every built-in as well as on `AppError`,
+   * so your own subclass can narrow it to its own literal. Mutable, as
+   * `Error.name` is everywhere in JavaScript.
    *
-   * It stays `string` on `AppError` itself, so your own subclasses are
-   * free to set their own.
+   * This is *not* the taxonomy discriminant — {@link AppError.kind} is.
+   * Keeping them apart is the whole design: a fixed taxonomy slot must
+   * not vary in a subclass, and a per-class identity must, so one
+   * property cannot be both.
    */
   declare name: string;
+
+  /**
+   * Which slot of the built-in taxonomy this error occupies, and the
+   * discriminant to `switch` on.
+   *
+   * @remarks
+   * Every built-in narrows this to a string literal. That is what makes
+   * them genuinely distinct types — the subclasses add no other
+   * members, so without it TypeScript, being structural, would consider
+   * a `ConflictError` assignable to a `NotFoundError` and
+   * `Result<T, NotFoundError>` would silently accept any `AppError`. It
+   * also makes `instanceof` narrow in the negative branch, and makes
+   * `switch (error.kind)` exhaustive over the taxonomy.
+   *
+   * Unlike {@link AppError.name}, `kind` is **inherited unchanged** by
+   * your own subclasses, and that is the point rather than a
+   * limitation: a `JwtVerificationError extends UnauthorizedError`
+   * reports `kind: 'UnauthorizedError'`, because to every caller
+   * switching on the taxonomy it *is* an unauthorized error. Were a
+   * subclass free to introduce its own kind, existing exhaustive
+   * switches would silently start falling through to `default` the
+   * moment a downstream package defined one. Its own identity lives in
+   * {@link AppError.name}.
+   *
+   * It stays `string` on `AppError` itself, so a subclass extending
+   * `AppError` directly may introduce its own kind.
+   *
+   * `readonly`, like `code`, `httpStatus` and `details` — reassigning a
+   * discriminant after construction is never meaningful.
+   */
+  declare readonly kind: string;
 
   /** Machine-readable, stable identifier for this failure. */
   readonly code: string;
@@ -245,6 +279,7 @@ export class AppError extends Error {
     Object.setPrototypeOf(this, new.target.prototype);
 
     this.name = 'AppError';
+    this.kind = 'AppError';
     this.code = options.code ?? 'INTERNAL_ERROR';
     this.httpStatus = options.httpStatus ?? 500;
     this.details = options.details;
@@ -343,9 +378,11 @@ export class AppError extends Error {
 export class ValidationError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'ValidationError';
+  declare readonly kind: 'ValidationError';
 
   /**
    * @param message - Human-readable description.
@@ -358,6 +395,7 @@ export class ValidationError extends AppError {
       httpStatus: options.httpStatus ?? 400,
     });
     this.name = 'ValidationError';
+    this.kind = 'ValidationError';
   }
 }
 
@@ -371,9 +409,11 @@ export class ValidationError extends AppError {
 export class NotFoundError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'NotFoundError';
+  declare readonly kind: 'NotFoundError';
 
   /**
    * @param message - Human-readable description.
@@ -386,6 +426,7 @@ export class NotFoundError extends AppError {
       httpStatus: options.httpStatus ?? 404,
     });
     this.name = 'NotFoundError';
+    this.kind = 'NotFoundError';
   }
 }
 
@@ -401,9 +442,11 @@ export class NotFoundError extends AppError {
 export class ForbiddenError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'ForbiddenError';
+  declare readonly kind: 'ForbiddenError';
 
   /**
    * @param message - Human-readable description.
@@ -416,6 +459,7 @@ export class ForbiddenError extends AppError {
       httpStatus: options.httpStatus ?? 403,
     });
     this.name = 'ForbiddenError';
+    this.kind = 'ForbiddenError';
   }
 }
 
@@ -431,9 +475,11 @@ export class ForbiddenError extends AppError {
 export class UnauthorizedError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'UnauthorizedError';
+  declare readonly kind: 'UnauthorizedError';
 
   /**
    * @param message - Human-readable description.
@@ -446,6 +492,7 @@ export class UnauthorizedError extends AppError {
       httpStatus: options.httpStatus ?? 401,
     });
     this.name = 'UnauthorizedError';
+    this.kind = 'UnauthorizedError';
   }
 }
 
@@ -460,9 +507,11 @@ export class UnauthorizedError extends AppError {
 export class ConflictError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'ConflictError';
+  declare readonly kind: 'ConflictError';
 
   /**
    * @param message - Human-readable description.
@@ -475,6 +524,7 @@ export class ConflictError extends AppError {
       httpStatus: options.httpStatus ?? 409,
     });
     this.name = 'ConflictError';
+    this.kind = 'ConflictError';
   }
 }
 
@@ -496,9 +546,11 @@ export class ConflictError extends AppError {
 export class NetworkError extends AppError {
   /**
    * Narrowed to a string literal so this class is structurally distinct
-   * from its siblings — see {@link AppError.name}.
+   * from its siblings, and so `switch (error.kind)` is exhaustive — see
+   * {@link AppError.kind}. Your own subclasses inherit it unchanged and
+   * set {@link AppError.name} instead.
    */
-  declare name: 'NetworkError';
+  declare readonly kind: 'NetworkError';
 
   /**
    * @param message - Human-readable description.
@@ -511,10 +563,11 @@ export class NetworkError extends AppError {
       httpStatus: options.httpStatus ?? 503,
     });
     this.name = 'NetworkError';
+    this.kind = 'NetworkError';
   }
 }
 
-/** Built-in subclasses {@link AppError.fromJSON} can restore by name. */
+/** Built-in subclasses {@link AppError.fromJSON} can restore, keyed by `kind`. */
 const ERROR_CONSTRUCTORS = new Map<
   string,
   new (message: string, options: AppErrorOptions) => AppError
@@ -563,7 +616,23 @@ function reviveAppError(value: unknown, depth: number): AppError | undefined {
     return undefined;
   }
 
-  const Constructor = ERROR_CONSTRUCTORS.get(name) ?? AppError;
+  // `kind` is the only field that selects a class, and an unrecognized
+  // or absent one falls back to `AppError` rather than to `name`.
+  //
+  // That single lever is deliberate. This function parses untrusted
+  // input, and dispatching on two fields would let a payload disagree
+  // with itself — `kind: 'ValidationError'` with `name: 'ForbiddenError'`
+  // — leaving which class wins to a fallback order nobody would think to
+  // check. `name` is carried through as data only.
+  //
+  // It is also what lets a downstream subclass round-trip usefully: a
+  // `JwtVerificationError` from `auth-utils` carries
+  // `kind: 'UnauthorizedError'`, so it revives as a real
+  // `UnauthorizedError` — right taxonomy, right 401 — keeping its own
+  // `name`.
+  const kind = value['kind'];
+  const Constructor =
+    (typeof kind === 'string' ? ERROR_CONSTRUCTORS.get(kind) : undefined) ?? AppError;
   const cause = reviveCause(value['cause'], depth + 1);
   const error = new Constructor(message, {
     code,
@@ -572,6 +641,8 @@ function reviveAppError(value: unknown, depth: number): AppError | undefined {
     ...(cause === undefined ? {} : { cause }),
   });
   // Preserves the name of a custom subclass this registry cannot know.
+  // The class itself is not recoverable — only the taxonomy slot is —
+  // so `instanceof YourSubclass` still does not survive a round trip.
   error.name = name;
   return error;
 }

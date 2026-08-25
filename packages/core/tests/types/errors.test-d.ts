@@ -36,18 +36,18 @@ describe('the hierarchy', () => {
   });
 
   it('keeps siblings distinct, which structural typing alone would not', () => {
-    // The subclasses add no members beyond the literal `name`, so without
+    // The subclasses add no members beyond the literal `kind`, so without
     // that discriminant TypeScript would consider these interchangeable.
     // @ts-expect-error - a ConflictError is not a NotFoundError
     const wrong: NotFoundError = new ConflictError('dup');
     void wrong;
   });
 
-  it('discriminates the built-in taxonomy on name', () => {
+  it('discriminates the built-in taxonomy on kind', () => {
     const error = new NotFoundError('x') as
       ConflictError | ForbiddenError | NotFoundError | UnauthorizedError | ValidationError;
 
-    switch (error.name) {
+    switch (error.kind) {
       case 'NotFoundError':
         expectTypeOf(error).toExtend<NotFoundError>();
         break;
@@ -74,7 +74,9 @@ describe('the hierarchy', () => {
       void asString;
       if (caught instanceof NotFoundError) {
         expectTypeOf(caught).toExtend<NotFoundError>();
-        expectTypeOf(caught.name).toEqualTypeOf<'NotFoundError'>();
+        // `kind` is the literal; `name` is free so subclasses can set it.
+        expectTypeOf(caught.kind).toEqualTypeOf<'NotFoundError'>();
+        expectTypeOf(caught.name).toEqualTypeOf<string>();
       }
     }
   });
@@ -168,5 +170,70 @@ describe('serialization', () => {
   it('types fromJSON as a Result over untrusted input', () => {
     expectTypeOf(AppError.fromJSON).parameter(0).toEqualTypeOf<unknown>();
     expectTypeOf(AppError.fromJSON).returns.toEqualTypeOf<Result<AppError, ValidationError>>();
+  });
+});
+
+describe('subclassing a built-in error', () => {
+  // The scenario this design exists for, and the one that used to be
+  // impossible: `auth-utils` wants a `JwtVerificationError` that *is* an
+  // `UnauthorizedError` (so generic auth handling and the 401 come for
+  // free) but reports its own name and narrows `details`.
+  interface JwtFailureDetails {
+    readonly reason: 'expired' | 'signature_invalid';
+  }
+
+  class JwtVerificationError extends UnauthorizedError {
+    declare name: 'JwtVerificationError';
+    declare readonly details: JwtFailureDetails;
+
+    constructor(reason: JwtFailureDetails['reason'], message: string) {
+      super(message, { code: `JWT_${reason.toUpperCase()}`, details: { reason } });
+      this.name = 'JwtVerificationError';
+    }
+  }
+
+  it('may declare its own literal name', () => {
+    const error = new JwtVerificationError('expired', 'gone');
+    expectTypeOf(error.name).toEqualTypeOf<'JwtVerificationError'>();
+  });
+
+  it('inherits the parent kind unchanged, which is the correct taxonomy answer', () => {
+    const error = new JwtVerificationError('expired', 'gone');
+    expectTypeOf(error.kind).toEqualTypeOf<'UnauthorizedError'>();
+  });
+
+  it('is still an UnauthorizedError to instanceof and to the type system', () => {
+    const error: UnauthorizedError = new JwtVerificationError('expired', 'gone');
+    expectTypeOf(error).toExtend<UnauthorizedError>();
+    expectTypeOf(error).toExtend<AppError>();
+  });
+
+  it('may narrow details, the BrandValidationError pattern', () => {
+    const error = new JwtVerificationError('expired', 'gone');
+    expectTypeOf(error.details).toEqualTypeOf<JwtFailureDetails>();
+    expectTypeOf(error.details.reason).toEqualTypeOf<'expired' | 'signature_invalid'>();
+  });
+
+  it('leaves details unknown at an untrusted catch site', () => {
+    const caught: unknown = new JwtVerificationError('expired', 'gone');
+    if (caught instanceof UnauthorizedError) {
+      // @ts-expect-error - the parent's details are still unknown
+      const asDetails: JwtFailureDetails = caught.details;
+      void asDetails;
+    }
+  });
+
+  it('is not assignable to a sibling of its parent', () => {
+    // @ts-expect-error - a JwtVerificationError is not a NotFoundError
+    const wrong: NotFoundError = new JwtVerificationError('expired', 'gone');
+    void wrong;
+  });
+
+  it('does not let a subclass forge a different kind', () => {
+    class Bad extends UnauthorizedError {
+      // @ts-expect-error - `kind` is the taxonomy slot and is inherited
+      declare kind: 'SomethingElse';
+    }
+    void Bad;
   });
 });

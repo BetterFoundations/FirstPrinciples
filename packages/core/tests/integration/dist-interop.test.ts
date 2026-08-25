@@ -53,6 +53,7 @@ describe.each([
     const build = get();
     expect(new build.ConflictError('dup').toJSON()).toEqual({
       name: 'ConflictError',
+      kind: 'ConflictError',
       message: 'dup',
       code: 'CONFLICT',
       httpStatus: 409,
