@@ -28,6 +28,7 @@ terse and factual — this is not a narrative log.
 | S13 | PKG-AUTH (first half) | 2026-08-25 | `@firstprinciples/auth-utils` — **hashing and JWT only**; refresh-token rotation, reuse detection and login-attempt tracking are deliberately deferred to S14. argon2id hashing with parameters chosen from measurements taken on this machine (table in the README and in decision 10 below), and JWT issue/verify behind a **mandatory algorithm allowlist validated against the key at construction time**. The design premise came from evidence, not assumption: before writing any of it, both `alg: none` and RS256→HS256 confusion were fired at raw `jose@6.2.10`, and **two attacks landed** — `jwtVerify(token, pemBytes)` with jose's optional `algorithms` omitted verified an attacker-forged HS256 token, and a token with no `exp` verified indefinitely. Both are now passing tests in `tests/attacks/` alongside the six the brief named (`alg: none`, algorithm confusion, `exp`, `nbf`, wrong `iss`, wrong `aud`) plus header key-injection (`jwk`/`jku`/`x5u`/`x5c`/`crit`), cross-key substitution, and HMAC secret-strength. 248 tests (unit / edge-case / attacks / integration / type-level), coverage 99.64% statements / 97.56% branches / 100% functions / 100% lines, lint clean, `pnpm audit` clean prod+full, 4.92 kB and 4.09 kB against 6 kB / 5 kB budgets. **Four real defects were caught by the tests rather than by review:** a `maxTokenAge` violation mis-mapped as `expired` (jose reports it as `JWTExpired` with `claim: 'iat'`); the `verifyPassword` unusable-hash path burning work at *default* parameters, which reopened the timing oracle for any non-default deployment; a `core` design defect that made every built-in error class unsubclassable (fixed **in `core`** — the taxonomy discriminant moved onto a new `readonly kind` field, freeing `name`, which unblocks S16 too — rather than worked around in this package; breaking against the published `core@0.1.0`, taken as a minor since nothing consumes it yet), and a `turbo.json` task-graph defect with four separate manifestations, one of which (`auth-utils#build` reading `core/dist/index.d.ts` mid-delete) failed 3 of 3 clean runs. Fixing it also closed the `logger` race parked since S10; the full-workspace pipeline went from 3/5 to **8/8 consecutive from-clean green runs** (see the S13 turbo section below). PR: TBD.
 | S14 | PKG-AUTH (second half) | 2026-08-25 | `@firstprinciples/auth-utils` completed: refresh-token rotation with reuse detection, and login-attempt rate limiting, both over a bring-your-own store with an in-memory default. **Atomicity came from the data model, not from a distributed transaction** — a token *family* is one record, so invalidating the presented token and issuing its successor are edits to one object and reach the store as a single write; the only remaining race is the ordinary read-modify-write, handled with compare-and-set. Reuse revokes the **whole family**, and `reused` fires exactly once per family. 383 tests (unit / edge-case / attacks / integration / type-level), coverage 99.78% statements / 98.13% branches / 100% functions / 100% lines, lint clean, audit clean, 6.88 kB and 4.13 kB against 9 kB / 5 kB budgets. The state machine is a **pure function** (`decideRotation`), which is what makes "test every transition" a complete table rather than a sampling. Concurrency was verified rather than assumed: an instrumented store counts lost compare-and-sets to prove the two-client race is real and not passing because the awaits never interleaved. **One S13 hand-off assumption was reversed** — see decision 1 below. PR: TBD. |
 | **POST-S14** | — | 2026-08-25 | **Adversarial security review of `auth-utils` — three real defects found, fixed, and regression-tested.** Reviewed source and tests only, with the planning docs deliberately unread, so nothing was accepted on the strength of its own design note. **Two of the five categories came back clean, and are recorded as clean rather than padded**: (a) *algorithm confusion* survived every vector attempted — `alg: none` and its case/whitespace variants, RS256→HS256 via both PEM text and stripped DER, an RSA public key handed in as a JWK and as an `oct` secret, an undersized `oct` JWK, a mixed-family allowlist, intra-asymmetric swaps (ES256 against an RSA key, an ES256 signature relabelled `EdDSA`), and a duplicate-`alg` header where `JSON.parse` keeps the last key; construction-time family pinning plus jose's own key/alg agreement caught all of them. (b) *timing* — a grep of every `===`/`!==`/`includes`/`indexOf`/`startsWith` in `src/` confirms no comparison touches a secret outside `hashesMatch` (`timingSafeEqual`) and `argon2.verify`; the one short-circuit that does exist (`usedHashes.some`) leaks only the index of an already-matched used hash, and revokes either way. **The three defects all sat where the existing tests did not look**, which is the ordinary pattern — the suite is genuinely adversarial (it mints attack tokens with jose's own primitives rather than through the package's signer, and asserts rejection reasons, not just failure), so the gaps were specific rather than systemic. Each finding below was reproduced against the unfixed code before any fix was written, and each regression test was re-run against the reverted source and observed to fail: **15 of the 22 new tests fail on the original code; the other 7 are the must-not-regress guards and pass on both sides.** Full suite 405 tests (was 383), coverage 99.79% statements / 98.21% branches / 100% functions / 100% lines, lint and `tsc --noEmit` clean, 7.02 kB / 4.18 kB against the 9 kB / 5 kB budgets. Findings and fixes in the POST-S14 section below. |
+| S16 | PKG-ACCESS | 2026-08-26 | `@firstprinciples/access-control` built: an isomorphic RBAC/ABAC engine over one portable JSON rule schema, with Express/Fastify/Hono guards and a React `<Can>`/`usePermission()` surface. 712 tests (unit / edge-case / integration / type-level), 100% coverage on all four metrics, lint clean, every entry inside budget (5.16 kB engine, 393 B react, 1.31 kB per guard). **The isomorphism claim is checked, not asserted**: one 45-row decision table is executed by five surfaces — the engine, all three guards over real loopback HTTP, and `<Can>`/`usePermission` rendered against a policy that has been through `JSON.stringify` + `parsePolicy`. **One real defect was found by the example, not by the tests** — see decision 14 below — and the same defect exists today in `auth-utils` (Parked problems). Numbered S16 to match the plan's own numbering; the S15 that "Next session" described is the adversarial `auth-utils` review recorded as the POST-S14 row above. |
 
 ---
 
@@ -1195,6 +1196,207 @@ exploitation scenario belongs.
 
 ---
 
+### S16 — `@firstprinciples/access-control` design decisions
+
+1. **`subject` is the resource, not the actor.** The spec fixes the signature
+   as `can(action, subject, context?)`, and RBAC literature uses "subject" for
+   the *actor*, so one of the two conventions had to lose. The resource won,
+   because it is what `<Can do=… on=…>` and every guard registration name; the
+   actor is the **principal**, bound once via `ac.for(principal)` and addressed
+   in conditions as `principal.*`. Stated at the top of `src/decision.ts` and
+   in the README, because a reader who guesses wrong gets every rule backwards.
+
+2. **The action and subject universes are declared, and required.** This is the
+   keystone the "deny by default, including for unknown actions" requirement
+   rests on: with a closed universe, `can('frobnicate', 'post')` is denied at
+   step 1, *before* a wildcard `allow '*' on '*'` admin rule can swallow it.
+   The alternative considered and rejected was inferring the universe from the
+   rules — it makes `'*'`-only policies degenerate to an empty universe, and it
+   silently blesses a typo in a rule. Declaring them also lets validation reject
+   a rule naming an undeclared action/subject/role, which closes the other half:
+   a mistyped rule never matches, and a mistyped `deny` that never matches is a
+   hole nothing reports at runtime.
+
+3. **Deny-overrides, order-independent — AWS IAM's model, not CASL's.** Denies
+   beat allows, allows beat silence, silence denies. Rejected CASL's
+   last-matching-rule-wins because it makes a policy's meaning depend on array
+   position: two people editing the same file, or two policies concatenated,
+   produce different decisions from the same rules. The cost is honest and
+   documented: there is **no ordering escape hatch and no priority field**, so a
+   role that inherits a denied role inherits the deny. Narrow the deny; you
+   cannot out-rank it. `tests/edge-cases/precedence.test.ts` proves the
+   independence over all 720 permutations of a six-rule policy (× 64 questions)
+   and 200 shuffles of the twelve-rule shared policy (× 45 rows).
+
+4. **Conditions are three-valued, and the asymmetry between effects is the
+   fail-closed property.** `true` / `false` / `unknown`, where `unknown` means
+   "this rule asks about an attribute nobody supplied". An `allow` fires only on
+   `true`; a `deny` fires on `unknown` too. Everything else follows: an
+   ownership check made without the resource denies, and a `deny` that cannot be
+   ruled out still applies. Kleene combinators, so **`not unknown` stays
+   `unknown`** — under ordinary boolean negation, a rule allowing when
+   `not (resource.locked eq true)` would have granted to any caller who passed
+   no resource at all. That is one line in `internal/truth.ts` and it is the
+   single most load-bearing line in the package.
+
+5. **`null`, `undefined`, `NaN` and `±Infinity` are all "absent".** Folding
+   `null` in kills the classic ownership bug outright: `principal.id eq
+   resource.authorId` where both are missing would otherwise be
+   `undefined === undefined` → `true`, handing an anonymous caller ownership of
+   an unowned row. Non-finite numbers are folded in for a different reason —
+   they do not survive `JSON.stringify`, so a policy branching on one would
+   decide differently on the two sides of the wire, which breaks the package's
+   whole premise. `tests/edge-cases/fail-closed.test.ts` walks the full 7×8
+   principal × resource matrix and asserts exactly two of the 56 cells grant.
+
+6. **`absent` and `unresolved` are tracked separately, and only `exists` /
+   `notExists` can tell.** `absent` = the root was supplied and has no such
+   attribute (a fact). `unresolved` = the root was never supplied, or reading it
+   threw (an absence of facts). Comparisons treat them identically; the presence
+   operators do not, and they must not: a hostile getter that throws, reported
+   as `absent`, would make `deny … when resource.classified exists` answer a
+   definite `false` and be skipped. Reported as `unresolved` it is `unknown`,
+   and an `unknown` deny still denies.
+
+7. **Attribute paths walk own properties only.** Nothing on a prototype is
+   reachable, which makes prototype pollution structurally unable to
+   manufacture an owner rather than merely filtered against — tested by
+   polluting `Object.prototype` for real. `__proto__`/`constructor`/`prototype`
+   are *also* rejected at policy-definition time, as a second independent
+   defence and because such a path is a bug worth failing loudly on. The cost:
+   a class instance's prototype getters resolve as absent, so policies are
+   evaluated against plain data. Documented, not worked around.
+
+8. **No coercion, anywhere.** Equality is strict; ordering is defined only for
+   two numbers or two strings, so JavaScript's `'10' > 9` cannot decide a
+   permission. A non-primitive operand is `unknown` rather than compared by
+   reference, because object identity does not survive JSON and a decision that
+   depends on it is not portable.
+
+9. **`definePolicy` throws; `parsePolicy` returns a `Result`.** Same split
+   `auth-utils` draws between constructing a verifier and verifying a token, and
+   the same one `core` draws with its branded primitives: a policy the developer
+   wrote wrong is startup configuration and should fail at startup, while a
+   policy arriving from a `fetch` is untrusted input whose rejection is an
+   expected outcome — a browser handed a malformed policy should render a
+   degraded UI, not white-screen. Both report **every** issue, not the first.
+
+10. **The validation brand is a `Symbol.for` own property, non-enumerable — so
+    it deliberately does not survive JSON.** `createAccessControl` refuses
+    anything unbranded, which means a policy that crossed a serialization
+    boundary *must* go back through `parsePolicy`. That is the ergonomics we
+    want, not friction to route around: the wire copy is untrusted again.
+    Rejected adding a type-level phantom brand as well — it would leak into
+    every consumer's annotations while catching nothing the runtime check
+    misses, since the risk lives on the far side of a `JSON.parse`.
+
+11. **`NoInfer` on every rule-side reference to a declared name.** Without it,
+    `subjects: ['post']` plus a rule saying `subjects: ['pots']` infers `S` as
+    `'post' | 'pots'` — the typo typechecks, *and* `can('read', 'pots')` then
+    typechecks too. The declaration sites drive inference; the rules are checked
+    against it. Asserted with `@ts-expect-error` in `tests/types/`.
+
+12. **`roles` in the map form is typed as a mapped type over `R`, not
+    `Record<R, readonly R[]>`.** With `Record`, inference runs from the
+    *values* first and the keys are then checked against them, so
+    `{ admin: ['editor'], editor: [] }` rejects `admin` — the one name that is
+    certainly declared. Found by `tsc --noEmit`, which is worth noting on its
+    own: **vitest's `typecheck` only covers `tests/types/*.test-d.ts`**, so a
+    green `vitest run` says nothing about the rest of the package. Run
+    `tsc --noEmit` (what the `typecheck` task does) before believing types.
+
+13. **`PermissionDeniedError` carries the reason on the instance and not on the
+    wire.** It subclasses `core`'s `ForbiddenError` — the S13 `kind`/`name` split
+    is what makes that possible, as the parked note anticipated — so `api-kit`
+    maps it to a 403 problem-details response with no wiring. But `core`
+    documents `details` as client-visible and `api-kit` also ships `message` and
+    `code`, so `details` holds only the action and subject the caller already
+    named. Which rule refused, and whether it refused outright or because a
+    resource could not be loaded, is policy shape; it stays on `error.reason` /
+    `error.ruleId` for the server's logs. The guards' `onDeny` hook exists for
+    exactly that.
+
+14. **The defect the tests could not see: `splitting: false` gave every entry
+    point its own copy of `PermissionDeniedError`.** With five tsup entries
+    bundled independently, `dist/index.js` and `dist/express.js` each *defined*
+    the class, so a consumer catching a guard's denial with
+    `error instanceof PermissionDeniedError` — the class imported from the main
+    entry — got `false`, and every 403 became a 500. **Found by running
+    `examples/access-control`, not by 712 passing tests**, and the reason is
+    structural rather than an oversight: every source-level suite imports
+    through `src/`, which is one module graph, and the bug only exists across
+    two built bundles. Fixed with `splitting: true`, which esbuild applies to
+    ESM and tsup arranges for CJS too — verified live in both formats, and
+    verified again through a real esbuild bundle with tree-shaking, since
+    `sideEffects: false` drops the redundant bare chunk import (harmlessly: the
+    named import chain keeps the class alive). `tests/integration/dist-bundle.test.ts`
+    now asserts the identity across entry points in both formats, and that test
+    was confirmed to *fail* with the flag flipped back before being kept.
+    **This generalizes: any package with more than one entry that defines its
+    own class needs `splitting: true`.** `api-kit` has four entries and defines
+    no classes, so it is unaffected; `auth-utils` has two entries and six error
+    classes, and **is affected today** — see Parked problems.
+
+15. **The isomorphism is proved by one shared table, executed five ways.**
+    `tests/shared/decision-table.ts` holds 45 rows, each stating the expected
+    answer *and* the expected reason and deciding rule, so a row cannot start
+    passing for the wrong cause. The engine runs it; all three guards run it
+    over real loopback HTTP, one route per row, allow → 200 and deny → 403;
+    `<Can>` and `usePermission` run it through `react-dom/server` **against a
+    policy round-tripped through `JSON.stringify` + `parsePolicy`**, so the
+    client half also proves the schema survives the wire. Two meta-tests assert
+    the table covers every declared action, every subject, and every rule as the
+    deciding rule at least once, so it cannot rot into a subset.
+
+16. **`src/react.ts` contains no JSX**; `<Can>` and the provider are built with
+    `createElement`, so the shipped bundle needs no JSX runtime configuration
+    and the package adds no build requirement to a consumer. The *tests* use JSX
+    deliberately — that is how every real caller consumes `<Can>`, and its prop
+    types are only exercised that way.
+
+17. **The React surface is typed at `string`, deliberately.** A browser
+    typically receives its policy at runtime via `parsePolicy`, where literal
+    action and subject types cannot exist, so the provider must accept the
+    widened `AccessControl`. Rejected both a `createAccessControlReact<A, S>()`
+    factory and a declaration-merged registry interface: two typing mechanisms
+    for one concept, to catch a mistake that deny-by-default already turns into
+    a visible non-event (a typo'd action hides the button in development). The
+    guards, where it matters more, *do* keep the literal unions, because they
+    take the typed `ac` directly.
+
+18. **Guard behaviour under failure, identical across all three adapters and
+    pinned by the conformance suite.** A `getResource` returning `null` denies
+    with **403, not 404** — answering "no such record" to someone who was not
+    allowed to look tells them something they had not earned. A `getPrincipal`
+    or `getResource` that *throws* propagates to the framework's error handler:
+    never converted into an allow, and never quietly into a 403 either, because
+    a broken lookup is not the same event as a refused caller. The Express guard
+    routes rejections through `next(error)` explicitly rather than relying on
+    the framework, because Express 4 (inside the declared peer range) does not
+    catch a rejected promise from async middleware and the request would hang.
+
+19. **Role inheritance cycles are tolerated, not rejected.** A cycle makes those
+    roles equivalent, which is a modelling oddity with no security consequence;
+    rejecting it would add a startup failure mode for no safety gain. The
+    visited set is what guarantees termination, and that is tested directly.
+
+20. **An undeclared role on a principal is ignored but reported.** It can only
+    ever reduce permissions, so ignoring is safe — but the usual cause is drift
+    between whatever issues identities and the policy file (`'Admin'` against a
+    declared `'admin'`), and the symptom is a rule that quietly stops matching
+    anyone. Surfaced as `explain().unknownRoles`, never on a thrown error.
+
+21. **`tests/integration/dist-bundle.test.ts` reads `dist/` instead of
+    rebuilding it**, unlike the equivalent suites in `core`/`logger`/`api-kit`.
+    `turbo.json` already orders a package's `test` after its own `build` (S13),
+    and rebuilding inside a test is precisely what made `test` a *writer* of
+    `build`'s outputs — the race S13 spent a session tracking down. The suite
+    asserts the artifact exists and names the command to run if it does not.
+    This is the direction the parked "the design is still upside-down" note
+    points; a new package had no reason to adopt the old shape.
+
+---
+
 ## Gate status
 
 - **Gate 1 (CI green on empty scaffold):** PASSED. `ci.yml`/`codeql.yml` green since S6 (PR #6). The `release.yml` no-op leftover is resolved by evidence, not assumption: it later ran for real (not a no-op) when PR #10's merge published `core` (S8) — the same workflow, same OIDC/`NPM_TOKEN` wiring, exercised live and succeeded. Branch protection on `main` was never directly confirmed via API (no tool for it), but four PRs (#8–#11) have gone through the standard PR+merge flow with CI required to pass, which is consistent with protection being on; treat as inferred, not verified, if it ever matters again.
@@ -1220,7 +1422,7 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 | auth-utils | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐‡ | ☐‡ | ☑ | ☑ | ☐ |
 
 ‡ Same caveat as `api-kit`: CodeQL and provenance-publish can only be confirmed once the branch is pushed and a release actually runs. Everything checkable locally is green. As of S14 this row covers the **whole** package — rotation, reuse detection and rate limiting all have their own tests, README sections and example sections.
-| access-control | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| access-control | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☐§ | ☐§ | ☑ | ☑ | ☐ |
 | bootstrap | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | queue | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | realtime-kit | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
@@ -1228,11 +1430,17 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 | react-forms | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | module-federation-kit | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 
+§ `access-control`: same caveat again — CodeQL and provenance-publish need a push and a real release to confirm. Everything checkable locally is green: `pnpm turbo run lint typecheck build test` clean from a wiped `dist`/`coverage`/turbo cache (28/28 tasks), 100% coverage on all four metrics, `pnpm audit` clean prod and full, all five `size-limit` entries inside budget, Prettier clean, and `examples/access-control` runs end to end.
+
 † `api-kit`'s CodeQL and provenance-publish columns can only be confirmed once the branch is pushed and a release actually runs — not verifiable in this local session (same "check the real thing, don't assume" pattern as PRE-S9's provenance fix and S11's testcontainers suite). Everything checkable locally (lint, typecheck, full coverage, `pnpm audit` prod+full, size-limit, the whole `turbo run lint/typecheck/build/test` sequence from a clean state) is green.
 
 ---
 
 ## Parked problems / open questions
+
+- **Found in S16, NOT fixed, affects a published-path package — `auth-utils` ships two copies of every error class.** `packages/auth-utils/tsup.config.ts` sets `splitting: false` with two entries (`index`, `jwt`), and `src/errors.ts` defines six classes, so `dist/index.js` and `dist/jwt.js` each define their own. Reproduced live against the built artifact, not inferred: driving `createJwtVerifier` from `@firstprinciples/auth-utils/jwt` and testing the returned error against `JwtVerificationError` imported from `@firstprinciples/auth-utils` gives **`false`** (`error.name` is correctly `JwtVerificationError`; the classes are simply two different objects). That is the documented edge-runtime path — the README tells you to import `/jwt` when you only need tokens — so a consumer writing `if (error instanceof JwtVerificationError) return 401` falls through to a 500. The fix is the same one-line `splitting: true` that S16 decision 14 records, plus a cross-entry regression test; it is left for its own change because `auth-utils` is in the auth risk category that `AGENTS.md` puts under mandatory Planner review, and it should not ride along in an `access-control` PR. Note that the POST-S14 adversarial review did not catch it: it read source and tests, and this defect exists only in the built output.
+- **Open, found in S16:** `vitest`'s `typecheck` block only covers `tests/types/*.test-d.ts`. A green `pnpm exec vitest run` reporting "Type Errors no errors" says nothing about `src/` or the other test files — `tsc --noEmit` (the `typecheck` turbo task) is the real gate, and it caught a genuine inference bug in S16 that vitest had reported clean. Worth knowing before trusting a local vitest run.
+- **Open, low priority, found in S16:** `size-limit` emits `Ignoring this import because "…/chunk-*.js" was marked as having no side effects` for the three guard entries, because `sideEffects: false` lets it drop tsup's redundant bare chunk import. Confirmed harmless — the named import chain still pulls the chunk in, verified by bundling `dist/express.js` with esbuild and checking `instanceof` still holds — but the warning will recur for any future split package and is noise in CI output.
 
 - **Community standards (GOV-1):** GitHub evaluates Insights → Community standards on default branch `main` only. Description/topics were set via API. File-based items (LICENSE, CoC, CONTRIBUTING, SECURITY, templates) go green after this S2 re-land merges to `main`.
 - ~~S7 (`core` design) must explicitly resolve the `Result`/error-class layering question~~ — **RESOLVED in S7**, written up as decision 1 under "S7 — `@firstprinciples/core` design decisions" above, with the per-session consequences spelled out for S10, S12 and S16.
@@ -1256,18 +1464,30 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 
 ## Next session
 
-**S15 · adversarial security review of `@firstprinciples/auth-utils`** — fresh chat, Claude Opus · **"ultrathink"**. Deliberately *not* run inside S13 or S14, so the reviewer is not anchored on the reasoning that produced the code. Read `EXECUTION-CHECKLIST.md` and `sprocket-ecosystem-spec.md` §10.6 and §7 in `../Preparation_Docs/`.
+**S17 · `@firstprinciples/bootstrap` + `@firstprinciples/queue`** — spec §10.7,
+§10.8, Day 8. Sonnet 5, `/effort medium`, bumped to `high` for the
+graceful-shutdown ordering in `bootstrap` and the retry-to-dead-letter
+transition in `queue` — both are "what happens under partial failure"
+problems, which is the category this build has repeatedly found to be where
+the real defects live.
 
-The package is complete: argon2id hashing, JWT issue/verify behind a mandatory algorithm allowlist, refresh-token rotation with family-wide reuse detection, and login-attempt rate limiting. Spec Day 6 asks for exactly this pass, and spec §5 flags `auth-utils` and `access-control` as the two highest-stakes-for-correctness packages.
+Read `EXECUTION-CHECKLIST.md` and `sprocket-ecosystem-spec.md` §10.7/§10.8.
 
-**Review it as an attacker, not as a reader.** The S13 and S14 decision sections above are the *claims* — treat them as things to falsify, not as context to absorb. Specifically worth attacking:
+Two things from S16 that generalize, and are worth carrying in rather than
+rediscovering:
 
-- **The atomicity claim (S14 decisions 2–3).** Is there any interleaving where both the presented token and its successor are valid, or where neither is? What happens if a store's `compareAndSet` is *not* atomic, or lies about it? What if `read` returns a stale revision that later matches?
-- **The reuse-detection state machine.** Is there a path where a replayed token does *not* revoke the family? Look hard at `maxChainLength` eviction, at `current === undefined`, at a family revoked between read and write, and at the check ordering in `decideRotation`.
-- **Timing and enumeration.** `verifyPassword`'s equalising work, `verifyPasswordDecoy`, and whether the refresh path leaks family existence.
-- **The JWT allowlist**, against `jose`'s current behaviour rather than what `tests/attacks/` recorded at the time.
-- **Anything that trusts store contents.** Every value read back is attacker-influenced if the store is compromised.
+- **If a package has more than one entry point and defines its own class, set
+  `splitting: true`.** S16 decision 14 has the full account. `queue` will
+  almost certainly define error classes and may well want a subpath.
+- **Run the example, not just the tests.** S16's only real defect was invisible
+  to 712 passing tests and obvious on the first run of `examples/`, because the
+  tests import through `src/` and the bug lived between two built bundles.
+  Treat the example as part of the verification pass, not as documentation
+  written afterwards.
 
-Two things S13/S14 already know are *not* findings, so do not spend the session re-deriving them: a client that double-submits its refresh logs the user out (S14 decision 4, deliberate, no grace window because it would require plaintext successor storage), and reuse of a token evicted past `maxChainLength` reports `unknown_token` rather than `reused` (a missed alert, not a missed rejection).
-
-Consider `Stryker` mutation testing on this package — spec §5 names it as a free stretch goal for exactly `auth-utils` and `access-control`, and the rotation state machine, being a pure function with a complete test table, is the ideal target. Report findings; fix what is real; record what is deliberate. Update this file; open a PR.
+Before or alongside it, one small standalone change is ready to make and
+deliberately was not made in S16: **`auth-utils` has the same duplicate-class
+defect, live today** — full reproduction under Parked problems. It is a
+one-line `tsup` change plus a cross-entry regression test, but it lands in the
+auth risk category that `AGENTS.md` puts under mandatory Planner review, so it
+wants its own PR rather than a ride-along.

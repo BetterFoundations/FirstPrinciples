@@ -1,0 +1,12 @@
+{
+  "extends": "../../tools/tsconfig-base/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    // `src/react.ts` builds elements with `createElement` and contains no JSX
+    // at all, so the shipped bundle needs no JSX runtime wiring. The *tests*
+    // do use JSX, deliberately — `<Can>` is consumed as JSX by every real
+    // caller, and its prop types are only exercised that way.
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "tests", "*.config.ts"]
+}
