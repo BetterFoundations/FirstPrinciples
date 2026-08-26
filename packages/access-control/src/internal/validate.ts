@@ -1,5 +1,6 @@
 import type { BinaryOperator, Condition, JsonPrimitive } from '../conditions.js';
 import type { Effect, Policy, Rule } from '../policy.js';
+import { MAX_CONDITION_DEPTH } from './evaluate.js';
 import { FORBIDDEN_SEGMENTS, PATH_ROOTS } from './resolve.js';
 
 /**
@@ -17,9 +18,6 @@ import { FORBIDDEN_SEGMENTS, PATH_ROOTS } from './resolve.js';
  * Every issue is collected before returning, so a policy with three
  * typos reports three, not the first.
  */
-
-/** Maximum nesting depth of `all`/`any`/`not` in one condition. */
-const MAX_CONDITION_DEPTH = 32;
 
 const COMPARISON_OPERATORS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains'] as const;
 const MEMBERSHIP_OPERATORS = ['in', 'nin'] as const;
@@ -453,6 +451,15 @@ function readRoles(value: unknown, issues: IssueCollector): Record<string, reado
     value.forEach((entry, index) => {
       if (typeof entry !== 'string' || entry.length === 0) {
         issues.add(`roles[${index}]`, 'Must be a non-empty string.');
+        return;
+      }
+      // The same names the map form refuses. Both forms produce the same
+      // normalized graph, so a name one accepts and the other rejects is
+      // a hole in whichever is laxer — and the normalized graph is
+      // something callers copy, where a `__proto__` key stops being
+      // inert the moment someone reaches for `Object.assign`.
+      if (FORBIDDEN_SEGMENTS.includes(entry)) {
+        issues.add(`roles[${index}]`, `'${entry}' is not usable as a role name.`);
         return;
       }
       // A write keyed by a declared role name that has just been

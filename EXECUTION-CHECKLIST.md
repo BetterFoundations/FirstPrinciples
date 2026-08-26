@@ -1462,6 +1462,115 @@ Columns per Final_plan.md §5 / spec §12. ☐ = not done, ☑ = done.
 
 ---
 
+## Adversarial review · `access-control` · 2026-08-26
+
+Fresh-eyes security pass over `packages/access-control` only (source + tests,
+no planning docs). Brief: find every path where "is this allowed?" answers YES
+when it should answer NO.
+
+**Result: one root cause, eight reachable fail-open paths, all fixed with
+regression tests.** 712 → 740 tests, coverage back to 100%/100%, lint and
+typecheck clean, `dist/` rebuilt and the bundle suite re-run against it.
+
+### Root cause
+
+The package defends the *data* half of prototype pollution rigorously —
+`internal/resolve.ts` walks own properties only, and `fail-closed.test.ts`
+pins that a polluted `Object.prototype.ownerId` cannot supply a resource its
+owner. It did not defend the *structural* half. The engine reads its own
+shapes off plain object literals, and every optional field is **omitted**
+rather than set to `undefined` when unused:
+
+- `internal/evaluate.ts` used `'all' in condition`, `'any' in`, `'not' in`,
+  `'ref' in`, `'value' in` — the `in` operator walks the prototype chain.
+- `engine.ts` used `rule.roles === undefined`, `rule.when`, `rule.id`,
+  `context?.resource`, `context?.env` — bare reads, same chain.
+- `policy.ts`'s `isPolicy` read its brand symbol off the chain too.
+
+So one polluted key does not rewrite one rule. It rewrites **every rule in the
+policy at once**, and the reachable direction is always the dangerous one: a
+`deny` that applied to everybody quietly applying to nobody, or a conditional
+`allow` quietly becoming unconditional. This is not a hypothetical threat model
+for this package — it already ships tests asserting immunity, and it ships to
+browsers, where the policy and the principal are under the caller's control.
+
+### Findings, each reproduced before fixing
+
+| # | Vector | File | Concrete scenario | Fix |
+|---|---|---|---|---|
+| 1 | `Object.prototype.all = []` | `internal/evaluate.ts:113` | `'all' in condition` is true for every leaf condition; `all([])` is vacuously `true`, so an ownership `allow` fires on a post the caller does not own. **Confirmed granting.** | Own-property structural reads; an empty `all`/`any` is `unknown`, not a Kleene identity |
+| 2 | `Object.prototype.any = []` | `internal/evaluate.ts:117` | Mirror image: `any([])` is `false`, so a `deny` guarding locked rows stops firing and the allow behind it is unopposed. | as above |
+| 3 | `Object.prototype.ref = 'principal.id'` | `internal/evaluate.ts:134` | `'ref' in` is checked before `'value' in`, so an inherited `ref` overrides a rule's own literal. `deny … resource.locked eq true` becomes `resource.locked` vs `principal.id` → `false`, and the locked row is editable. **Confirmed granting.** | own-property read of `ref`/`value`, plus a `typeof ref === 'string'` guard |
+| 4 | `Object.prototype.roles = [...]` | `engine.ts:101` | A rule with no `roles` means "everyone". An inherited `roles` naming a role nobody holds re-targets every such rule at nobody — including the `deny` that was the only fence. **Confirmed granting.** | `hasOwn(rule, 'roles')`, plus `Array.isArray` guard |
+| 5 | `Object.prototype.resource` / `.env` | `engine.ts:188-189` | `context` is usually a fresh `{}` or omitted. An inherited `resource` hands the engine a resource the caller never passed, answering an ownership check on a type-level question. **Confirmed granting.** | `contextRoot()` — own-property read |
+| 6 | `Object.prototype.not = {…}` | `internal/evaluate.ts:119` | Every condition now contains itself → unbounded recursion → `RangeError` **thrown straight out of `can()`**, which is documented "Never throws … a permission check that can throw is a permission check that gets wrapped in a `try/catch` whose `catch` branch someone eventually writes as allow". **Confirmed throwing.** | own-property read + a depth limit in the evaluator mirroring `validate.ts`'s, shared as `MAX_CONDITION_DEPTH` |
+| 7 | `Object.prototype.all = 5` | `internal/evaluate.ts:114` | `condition.all.map` on a number → `TypeError` out of `can()`. Same escape as #6. **Confirmed throwing.** | shape guards + a `try/catch` in `engine.ts`'s new `verdictOf()` that turns any throw into `unknown` — which denies through an `allow` *and* through a `deny`, so an unexpected error can never grant |
+| 8 | Brand read off the prototype | `policy.ts:197` | `Object.prototype[Symbol.for('@firstprinciples/access-control/Policy')] = true` makes **any object** pass `isPolicy`, defeating the "a policy that crossed a serialization boundary must be re-validated" guarantee. | `hasOwnProperty` check before the value comparison |
+
+Two lower-severity items found in the same pass and fixed alongside:
+
+- **`for()` could throw.** `internal/roles.ts:86` iterated `principal.roles`
+  directly; an array with a throwing accessor escaped the binding call. Now
+  copied inside a `try`, falling back to no roles — the same fail-closed answer
+  a non-array `roles` already got.
+- **`readRoles` validated the two `roles` declaration forms differently.**
+  `internal/validate.ts:479` rejected `__proto__` / `constructor` /
+  `prototype` in the map form but the list form accepted them, emitting a
+  normalized graph of `{"__proto__": []}`. Inert inside this package (`Map`
+  and `Set` downstream, and the spread at line 569 uses `CreateDataProperty`),
+  but the normalized graph is something callers copy, and `Object.assign`
+  would set the prototype instead of a key. Both forms now reject them.
+
+### Checked and found sound — worth not re-deriving
+
+The six categories in the brief, minus the above: undeclared action/subject
+(denied at `engine.ts:176-177` *before* any rule, wildcards included);
+null/undefined/malformed context (`resolvePath` folds every non-object root to
+`unresolved`, never `absent`); allow/deny conflicts (order-independence is
+already proved over all 720 permutations of a six-rule policy); ownership with
+an absent or wrong-typed owner field (`normalize` folds `null`/`undefined`/
+non-finite to `absent`, so two missing ids never match — the full 56-cell
+matrix is already enumerated); client/server divergence (all three server
+adapters share `internal/guard-core.ts`, and React uses the same engine —
+there is no second evaluation path to diverge).
+
+One **non-security divergence** deliberately left alone: a `Date` on the server
+is not a primitive, so comparisons against it are `unknown` and deny; after
+`JSON.stringify` the client sees an ISO string and the same comparison decides
+definitely. The server is the strict side, so it is a UX inconsistency (a
+button that appears and then 403s), not a hole. Worth a docs note if anyone
+writes a policy that orders on timestamps.
+
+### Notes for whoever touches this next
+
+- **`validate.ts` now imports `MAX_CONDITION_DEPTH` from `internal/evaluate.ts`**
+  so the limit the validator enforces and the limit the evaluator enforces
+  cannot drift. No cycle: `evaluate` does not import `validate`.
+- **The new test file is `tests/edge-cases/prototype-pollution.test.ts`.** Every
+  test in it was verified to **fail** against the pre-fix sources (17 of 23 at
+  the time of the check) before the fixes were restored — they are regression
+  tests, not restatements of current behaviour.
+- **`Object.prototype.value` is deliberately not exercised.** `ref` is
+  consulted first and is the key that can actually override a rule's own
+  right-hand side, and polluting `value` breaks `Object.defineProperty` for the
+  entire runtime — every property descriptor inherits it — long before it
+  reaches this engine.
+- **`Object.prototype.when` is fixed but was never a grant.** An inherited
+  `when` reaches every unconditional rule at once, so the `deny` and the
+  `allow` move together and the outcome stays a denial whatever it evaluates
+  to. Fixed anyway: "harmless as long as both sides are polluted identically"
+  is one refactor away from not holding. The test asserts the invariant, not a
+  vulnerability.
+- **Open, low priority:** `matchesRoles` and `matchesSelector` return "matches
+  nothing" for a forged non-array selector. For an `allow` that is
+  fail-closed; for a `deny` it is technically the open direction. It is
+  unreachable through the public API (`createAccessControl` refuses an
+  unbranded policy), and making it effect-aware would put the asymmetry in a
+  place nobody reading `matchesSelector` would expect it. Revisit only if a
+  policy can ever reach the engine without `parsePolicy`.
+
+---
+
 ## Next session
 
 **S17 · `@firstprinciples/bootstrap` + `@firstprinciples/queue`** — spec §10.7,

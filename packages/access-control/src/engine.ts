@@ -5,6 +5,7 @@ import { evaluateCondition } from './internal/evaluate.js';
 import type { AttributeEnvironment } from './internal/resolve.js';
 import { buildRoleClosures, resolveEffectiveRoles } from './internal/roles.js';
 import { isPolicy, type Policy, type Rule } from './policy.js';
+import type { Ternary } from './internal/truth.js';
 
 /**
  * The decision core: one pure function from (policy, principal, action,
@@ -90,16 +91,91 @@ export interface AccessControl<A extends string = string, S extends string = str
   for(principal: Principal | null | undefined): PermissionChecker<A, S>;
 }
 
-function matchesSelector(selector: readonly string[] | '*', name: string): boolean {
-  return selector === '*' || selector.includes(name);
+/**
+ * Whether `key` is an **own** property of `value`.
+ *
+ * @remarks
+ * A rule is a plain object literal and so inherits from
+ * `Object.prototype`. Every optional field on it — `roles`, `when`, `id`
+ * — is *omitted* rather than set to `undefined` when it is not used, so
+ * reading one with `rule.roles` would happily return whatever a polluted
+ * `Object.prototype.roles` holds. That is not a theoretical rewrite of
+ * one rule: it silently re-targets every unconditional rule in the
+ * policy at once, and the dangerous direction is a `deny` that applied
+ * to everyone suddenly applying to nobody.
+ */
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** Reads an own property, or `undefined` if it is not one. */
+function readOwn(value: object, key: string): unknown {
+  if (!hasOwn(value, key)) return undefined;
+  // Own-property read, key from a fixed literal set in this file.
+  // eslint-disable-next-line security/detect-object-injection
+  return (value as Record<string, unknown>)[key];
+}
+
+function matchesSelector(selector: unknown, name: string): boolean {
+  if (selector === '*') return true;
+  // A non-array selector is unreachable for a validated policy. Treating
+  // it as matching nothing keeps a forged rule inert rather than letting
+  // `.includes` throw out of a check documented never to throw.
+  if (!Array.isArray(selector)) return false;
+  return selector.includes(name);
 }
 
 function matchesRoles(rule: Rule, roles: ReadonlySet<string>): boolean {
   // No `roles` on the rule means it applies to everyone, anonymous
   // included. An empty array is rejected by `definePolicy`, so this is
   // never an accidental "matches nobody".
-  if (rule.roles === undefined) return true;
-  return rule.roles.some((role) => roles.has(role));
+  if (!hasOwn(rule, 'roles')) return true;
+  const declared = rule.roles;
+  if (!Array.isArray(declared)) return false;
+  return declared.some((role) => roles.has(role));
+}
+
+/**
+ * A rule's condition verdict, with two nets under it.
+ *
+ * `when` is read as an own property, so a polluted
+ * `Object.prototype.when` cannot attach a condition to a rule that was
+ * written unconditional. And any throw from evaluation becomes
+ * `unknown` — which denies through an `allow` and denies through a
+ * `deny`, so the one thing an unexpected error can never do is grant.
+ */
+function verdictOf(rule: Rule, environment: AttributeEnvironment): Ternary {
+  if (!hasOwn(rule, 'when')) return 'true';
+  const when = rule.when;
+  if (when === undefined) return 'true';
+  try {
+    return evaluateCondition(when, environment);
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** A rule's own `id`, never one inherited from a polluted prototype. */
+function ruleIdOf(rule: Rule): string | undefined {
+  const id = readOwn(rule, 'id');
+  return typeof id === 'string' ? id : undefined;
+}
+
+/**
+ * Reads one attribute root off the caller's context.
+ *
+ * @remarks
+ * Own-property only, for the same reason as {@link hasOwn}: `context`
+ * is very often a fresh `{}` or omitted entirely, and an inherited
+ * `resource` would hand the engine a resource the caller never passed —
+ * which is precisely how an ownership rule is made to grant.
+ */
+function contextRoot(context: PermissionContext | undefined, key: 'resource' | 'env'): unknown {
+  if (context === null || typeof context !== 'object') return undefined;
+  // `null` and `undefined` are the same thing here — a root that was not
+  // supplied — and both make every path under them unresolved rather
+  // than absent.
+  return readOwn(context, key) ?? undefined;
 }
 
 /**
@@ -182,11 +258,8 @@ export function createAccessControl<A extends string, S extends string>(
 
         const environment: AttributeEnvironment = {
           principal: principal ?? undefined,
-          // `null` and `undefined` are the same thing here — a root that
-          // was not supplied — and both make every path under them
-          // unresolved rather than absent.
-          resource: context?.resource ?? undefined,
-          env: context?.env ?? undefined,
+          resource: contextRoot(context, 'resource'),
+          env: contextRoot(context, 'env'),
         };
 
         // Step 2 and 3. Denies first, and a `deny` that could not be
@@ -198,12 +271,11 @@ export function createAccessControl<A extends string, S extends string>(
         for (const rule of bucket.deny) {
           if (!matchesSelector(rule.actions, action)) continue;
           if (!matchesRoles(rule, roles)) continue;
-          const verdict =
-            rule.when === undefined ? 'true' : evaluateCondition(rule.when, environment);
-          if (verdict === 'true') return base(false, 'explicit_deny', rule.id);
+          const verdict = verdictOf(rule, environment);
+          if (verdict === 'true') return base(false, 'explicit_deny', ruleIdOf(rule));
           if (verdict === 'unknown' && !sawUnresolvedDeny) {
             sawUnresolvedDeny = true;
-            unresolvedDenyId = rule.id;
+            unresolvedDenyId = ruleIdOf(rule);
           }
         }
         if (sawUnresolvedDeny) return base(false, 'unresolved_deny', unresolvedDenyId);
@@ -214,9 +286,7 @@ export function createAccessControl<A extends string, S extends string>(
         for (const rule of bucket.allow) {
           if (!matchesSelector(rule.actions, action)) continue;
           if (!matchesRoles(rule, roles)) continue;
-          const verdict =
-            rule.when === undefined ? 'true' : evaluateCondition(rule.when, environment);
-          if (verdict === 'true') return base(true, 'allowed', rule.id);
+          if (verdictOf(rule, environment) === 'true') return base(true, 'allowed', ruleIdOf(rule));
         }
 
         // Step 5. Nothing granted it.

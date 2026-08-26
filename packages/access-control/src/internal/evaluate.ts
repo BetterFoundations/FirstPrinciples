@@ -1,4 +1,4 @@
-import type { Condition, JsonPrimitive } from '../conditions.js';
+import type { AllOf, AnyOf, Condition, JsonPrimitive, NotCondition } from '../conditions.js';
 import { resolvePath, type AttributeEnvironment, type Resolved } from './resolve.js';
 import { all, any, fromBoolean, negate, type Ternary } from './truth.js';
 
@@ -16,7 +16,39 @@ import { all, any, fromBoolean, negate, type Ternary } from './truth.js';
  *    between two numbers or two strings. JavaScript's own relational
  *    coercion — where `'10' > 9` — is exactly the kind of surprise a
  *    permission check cannot afford.
+ *
+ * A third rule governs how a condition's *own shape* is read, and it is
+ * the same one `resolve.ts` applies to the data being compared: **only
+ * own properties count.** A condition is a plain object literal, so it
+ * inherits from `Object.prototype`, and `'all' in condition` would
+ * answer `true` for every condition ever written if something in the
+ * process had set `Object.prototype.all`. Reading structure with `in`
+ * therefore hands an attacker who can pollute a prototype the ability to
+ * rewrite every rule in the policy at once. Every structural read below
+ * goes through {@link hasOwn}.
  */
+
+/** Maximum nesting depth of `all`/`any`/`not` in one condition. */
+export const MAX_CONDITION_DEPTH = 32;
+
+/**
+ * Whether `key` is an **own** property of `value`.
+ *
+ * @remarks
+ * The only way structure is ever read in this module. See the module
+ * remarks for why `in` and a bare property read are both unsafe here.
+ */
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** Reads an own property, or `undefined` if it is not one. */
+function readOwn(value: object, key: string): unknown {
+  if (!hasOwn(value, key)) return undefined;
+  // Own-property read, key from a fixed literal set in this file.
+  // eslint-disable-next-line security/detect-object-injection
+  return (value as Record<string, unknown>)[key];
+}
 
 /** A literal operand, lifted into the same shape a resolved path produces. */
 function literal(value: unknown): Resolved {
@@ -110,36 +142,63 @@ export function evaluateCondition(
   condition: Condition,
   environment: AttributeEnvironment,
 ): Ternary {
-  if ('all' in condition) {
-    return all(condition.all.map((operand) => evaluateCondition(operand, environment)));
-  }
-  if ('any' in condition) {
-    return any(condition.any.map((operand) => evaluateCondition(operand, environment)));
-  }
-  if ('not' in condition) {
-    return negate(evaluateCondition(condition.not, environment));
+  return evaluate(condition, environment, 1);
+}
+
+/**
+ * @param depth - 1 at the top level, matching the convention
+ * `validate.ts` uses, so nothing a validated policy can express is
+ * turned away here. Past the limit the answer is `unknown`, which is
+ * what stops a forged self-referential condition — reachable only
+ * through a polluted `Object.prototype.not` — from recursing until the
+ * stack overflows and the throw escapes `can()`.
+ */
+function evaluate(condition: Condition, environment: AttributeEnvironment, depth: number): Ternary {
+  if (depth > MAX_CONDITION_DEPTH) return 'unknown';
+  if (typeof condition !== 'object' || condition === null) return 'unknown';
+
+  if (hasOwn(condition, 'all') || hasOwn(condition, 'any')) {
+    const key = hasOwn(condition, 'all') ? 'all' : 'any';
+    const operands = readOwn(condition, key) as AllOf['all'] | AnyOf['any'];
+    // An empty list is rejected by `parsePolicy`, and both Kleene
+    // identities for one — `all([])` is `true`, `any([])` is `false` —
+    // are the fail-open direction: the first makes a conditional `allow`
+    // unconditional, the second silences a `deny`.
+    if (!Array.isArray(operands) || operands.length === 0) return 'unknown';
+    const verdicts = operands.map((operand) => evaluate(operand, environment, depth + 1));
+    return key === 'all' ? all(verdicts) : any(verdicts);
   }
 
-  const left = resolvePath(environment, condition.path);
+  if (hasOwn(condition, 'not')) {
+    const inner = readOwn(condition, 'not') as NotCondition['not'];
+    return negate(evaluate(inner, environment, depth + 1));
+  }
 
-  if (condition.op === 'exists' || condition.op === 'notExists') {
+  const path = readOwn(condition, 'path');
+  const op = readOwn(condition, 'op');
+  if (typeof path !== 'string' || typeof op !== 'string') return 'unknown';
+
+  const left = resolvePath(environment, path);
+
+  if (op === 'exists' || op === 'notExists') {
     // The only operators that can answer definitively about a missing
     // attribute — and only when its root was supplied. `unresolved`
     // (root absent, or a read threw) stays `unknown` for both.
     if (left.kind === 'unresolved') return 'unknown';
     const present = left.kind === 'value';
-    return fromBoolean(condition.op === 'exists' ? present : !present);
+    return fromBoolean(op === 'exists' ? present : !present);
   }
 
-  if ('ref' in condition) {
-    return applyBinary(condition.op, left, resolvePath(environment, condition.ref));
+  if (hasOwn(condition, 'ref')) {
+    const ref = readOwn(condition, 'ref');
+    if (typeof ref !== 'string') return 'unknown';
+    return applyBinary(op, left, resolvePath(environment, ref));
   }
-  if ('value' in condition) {
-    return applyBinary(condition.op, left, literal(condition.value));
+  if (hasOwn(condition, 'value')) {
+    return applyBinary(op, left, literal(readOwn(condition, 'value')));
   }
   // Unreachable for a validated policy — a binary operator with neither
   // `value` nor `ref` is rejected by `parsePolicy`. Reachable only for a
   // hand-forged condition object, and `unknown` denies either way.
-  /* c8 ignore next */
   return 'unknown';
 }

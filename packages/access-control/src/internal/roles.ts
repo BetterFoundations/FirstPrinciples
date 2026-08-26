@@ -81,9 +81,22 @@ export function resolveEffectiveRoles(
 ): EffectiveRoles {
   if (!Array.isArray(claimed)) return { roles: NO_ROLES, unknown: [] };
 
+  // Copied index by index inside a `try`, because the principal is the
+  // application's own object and nothing stops it being an array with a
+  // throwing accessor. A throw here would escape `for()` — and a binding
+  // that throws is a binding someone wraps in a `catch` that eventually
+  // gets written as "allow". Holding no roles is the fail-closed answer,
+  // and it is the same one a non-array `roles` already gets.
+  let entries: readonly unknown[];
+  try {
+    entries = Array.prototype.slice.call(claimed) as unknown[];
+  } catch {
+    return { roles: NO_ROLES, unknown: [] };
+  }
+
   const roles = new Set<string>();
   const unknown: string[] = [];
-  for (const claim of claimed) {
+  for (const claim of entries) {
     if (typeof claim !== 'string') continue;
     const closure = closures.get(claim);
     if (closure === undefined) {

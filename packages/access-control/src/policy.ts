@@ -191,6 +191,11 @@ function brandPolicy<A extends string, S extends string>(policy: Policy): Policy
  */
 export function isPolicy(value: unknown): value is Policy {
   if (typeof value !== 'object' || value === null) return false;
+  // Own-property only. `brandPolicy` defines the brand directly on the
+  // policy, so an inherited one is never this package's doing — it is a
+  // polluted `Object.prototype`, and honouring it would let any object
+  // at all pass for a validated policy.
+  if (!Object.prototype.hasOwnProperty.call(value, POLICY_BRAND)) return false;
   // A read of a module-private symbol key, not a caller-supplied one —
   // there is no injection sink here.
   // eslint-disable-next-line security/detect-object-injection
