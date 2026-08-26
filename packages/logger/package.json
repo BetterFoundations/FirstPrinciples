@@ -76,10 +76,10 @@
     "@firstprinciples/tsconfig-base": "workspace:*",
     "@firstprinciples/vitest-config": "workspace:*",
     "@types/node": "^26.2.0",
-    "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9.39.5",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.9.0",
     "tsup": "^8.5.0",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }
