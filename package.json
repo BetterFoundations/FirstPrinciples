@@ -30,7 +30,7 @@
     "prettier": "^3.6.2",
     "size-limit": "^13.0.3",
     "turbo": "^2.10.10",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,tsx}": [
