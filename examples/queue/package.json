@@ -1,0 +1,21 @@
+{
+  "name": "examples-queue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/queue. Needs a Redis: set REDIS_URL.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/queue": "workspace:*",
+    "bullmq": "^6.3.9",
+    "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

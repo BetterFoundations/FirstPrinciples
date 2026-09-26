@@ -1,0 +1,8 @@
+[
+  {
+    "name": "@firstprinciples/queue (bullmq external)",
+    "path": "dist/index.js",
+    "limit": "5 KB",
+    "ignore": ["@firstprinciples/core", "bullmq"]
+  }
+]

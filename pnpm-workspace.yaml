@@ -19,6 +19,12 @@ allowBuilds:
   argon2: false
   cpu-features: true
   esbuild: true
+  # false, deliberately (S19). Pulled in by bullmq -> msgpackr as an
+  # optional native accelerator; msgpackr wraps the require in a
+  # try/catch and falls back to its pure-JS decoder, and the package's
+  # prebuilds (@msgpackr-extract/*) arrive as optionalDependencies, so
+  # the install script is not needed. Same reasoning as argon2 above.
+  msgpackr-extract: false
   protobufjs: true
   ssh2: true
 overrides:
