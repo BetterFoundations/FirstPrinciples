@@ -1,0 +1,8 @@
+[
+  {
+    "name": "@firstprinciples/bootstrap",
+    "path": "dist/index.js",
+    "limit": "5 KB",
+    "ignore": ["@firstprinciples/core", "@firstprinciples/logger", "node:http"]
+  }
+]
