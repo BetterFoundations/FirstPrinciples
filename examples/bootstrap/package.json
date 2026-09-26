@@ -1,0 +1,19 @@
+{
+  "name": "examples-bootstrap",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable usage example for @firstprinciples/bootstrap.",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@firstprinciples/bootstrap": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

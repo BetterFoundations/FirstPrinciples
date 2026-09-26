@@ -1,0 +1,12 @@
+{
+  "extends": "../../tools/tsconfig-base/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    // tsup's dts worker does not pick `@types/node` up by auto-inclusion the
+    // way `tsc` does, so name it (same fix as auth-utils). Unlike auth-utils,
+    // Node types *do* appear in this package's public signatures
+    // (`httpServerResource(server: Server)`) — it is a Node-only package.
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "*.config.ts"]
+}
