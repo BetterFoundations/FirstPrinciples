@@ -66,6 +66,6 @@
     "testcontainers": "^12.1.0",
     "tsup": "^8.5.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
