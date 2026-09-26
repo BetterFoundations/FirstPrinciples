@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "@firstprinciples/core": "workspace:*",
-    "jose": "^6.2.10"
+    "jose": "^6.2.12"
   },
   "peerDependencies": {
     "argon2": ">=0.44.0 <1"

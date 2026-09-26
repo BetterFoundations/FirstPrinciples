@@ -1,0 +1,31 @@
+[
+  {
+    "name": "@firstprinciples/access-control (core inlined)",
+    "path": "dist/index.js",
+    "limit": "6 KB"
+  },
+  {
+    "name": "@firstprinciples/access-control/react (react external)",
+    "path": "dist/react.js",
+    "limit": "1 KB",
+    "ignore": ["react"]
+  },
+  {
+    "name": "@firstprinciples/access-control/express (express external)",
+    "path": "dist/express.js",
+    "limit": "2 KB",
+    "ignore": ["express"]
+  },
+  {
+    "name": "@firstprinciples/access-control/fastify (fastify external)",
+    "path": "dist/fastify.js",
+    "limit": "2 KB",
+    "ignore": ["fastify"]
+  },
+  {
+    "name": "@firstprinciples/access-control/hono (hono external)",
+    "path": "dist/hono.js",
+    "limit": "2 KB",
+    "ignore": ["hono"]
+  }
+]

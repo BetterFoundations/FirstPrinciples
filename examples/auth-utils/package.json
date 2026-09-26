@@ -11,7 +11,7 @@
     "@firstprinciples/auth-utils": "workspace:*",
     "@firstprinciples/core": "workspace:*",
     "argon2": "^0.45.1",
-    "jose": "^6.2.10"
+    "jose": "^6.2.12"
   },
   "engines": {
     "node": ">=24"
