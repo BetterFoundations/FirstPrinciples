@@ -69,7 +69,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "pino": "^10.3.1"
+    "pino": "^10.4.0"
   },
   "devDependencies": {
     "@firstprinciples/eslint-config": "workspace:*",
