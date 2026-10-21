@@ -105,17 +105,17 @@
     "@firstprinciples/eslint-config": "workspace:*",
     "@firstprinciples/tsconfig-base": "workspace:*",
     "@firstprinciples/vitest-config": "workspace:*",
-    "@hono/node-server": "^2.1.1",
+    "@hono/node-server": "^2.1.5",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.6.2",
-    "@vitest/coverage-v8": "^5.0.1",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.5",
     "esbuild": "^0.28.2",
-    "eslint": "^9.39.5",
+    "eslint": "^10.13.0",
     "express": "^5.2.1",
-    "fastify": "^5.12.5",
-    "hono": "^4.13.8",
-    "tsup": "^8.5.0",
-    "typescript": "^6.0.3",
-    "vitest": "^5.0.1"
+    "fastify": "^5.12.7",
+    "hono": "^4.13.13",
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }
