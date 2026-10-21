@@ -154,7 +154,7 @@ importers:
         version: link:../../tools/vitest-config
       '@hono/node-server':
         specifier: ^2.1.1
-        version: 2.1.1(hono@4.13.9)
+        version: 2.1.1(hono@4.13.11)
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
@@ -180,8 +180,8 @@ importers:
         specifier: ^5.12.5
         version: 5.12.5
       hono:
-        specifier: ^4.13.8
-        version: 4.13.9
+        specifier: ^4.13.11
+        version: 4.13.11
       jsdom:
         specifier: ^30.1.1
         version: 30.1.1
@@ -218,7 +218,7 @@ importers:
         version: link:../../tools/vitest-config
       '@hono/node-server':
         specifier: ^2.1.1
-        version: 2.1.1(hono@4.13.9)
+        version: 2.1.1(hono@4.13.11)
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
@@ -241,8 +241,8 @@ importers:
         specifier: ^5.12.5
         version: 5.12.5
       hono:
-        specifier: ^4.13.8
-        version: 4.13.9
+        specifier: ^4.13.11
+        version: 4.13.11
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(postcss@8.5.26)(supports-color@7.2.0)(typescript@6.0.3)(yaml@2.9.0)
@@ -2460,8 +2460,8 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  hono@4.13.9:
-    resolution: {integrity: sha512-7dMkQmZoC4E6F7AtaQSPhlWAdnBti+j7rreMZl8QB4jFiEhP9TWbGWUMi8WYzBCgmgulxuvLQupKqo+Co6Omyg==}
+  hono@4.13.11:
+    resolution: {integrity: sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@7.0.0:
@@ -4341,9 +4341,9 @@ snapshots:
       protobufjs: 7.6.5
       yargs: 17.7.3
 
-  '@hono/node-server@2.1.1(hono@4.13.9)':
+  '@hono/node-server@2.1.1(hono@4.13.11)':
     dependencies:
-      hono: 4.13.9
+      hono: 4.13.11
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -6062,7 +6062,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.13.9: {}
+  hono@4.13.11: {}
 
   html-encoding-sniffer@7.0.0:
     dependencies:
