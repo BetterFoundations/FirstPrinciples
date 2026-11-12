@@ -105,7 +105,7 @@
     "@firstprinciples/eslint-config": "workspace:*",
     "@firstprinciples/tsconfig-base": "workspace:*",
     "@firstprinciples/vitest-config": "workspace:*",
-    "@hono/node-server": "^2.1.1",
+    "@hono/node-server": "^2.1.6",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
     "@vitest/coverage-v8": "^5.0.1",
